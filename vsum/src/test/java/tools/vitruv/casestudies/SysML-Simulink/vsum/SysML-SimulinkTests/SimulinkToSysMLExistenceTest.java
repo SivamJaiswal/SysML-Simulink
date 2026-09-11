@@ -123,9 +123,7 @@ public class SimulinkToSysMLExistenceTest {
         util.registerRootObjects(vsum, tempDir);
 
         util.addBlock(vsum, tempDir, "ConditionalSubsystem");
-        // Trigger/Enable/State are intentionally not exercised here since no
-        // SimulinkToSysML reaction listens for them at all — nothing to assert
-        // beyond "no PortUsage appears".
+        // no reaction listens for Trigger/Enable/State at all — nothing to assert beyond "no PortUsage appears".
         assertNull(util.getCorrespondingInSysml(vsum, "trigger", PortUsage.class));
     }
 
@@ -175,8 +173,7 @@ public class SimulinkToSysMLExistenceTest {
         util.addSingleConnection(vsum, "outY", "inY");
 
         util.deleteFromSimulink(vsum, "outY", OutPort.class);
-        // deleting the OutPort transitively removes its contained SingleConnection
-        // (Connection.from/OutPort.connection is containment=true on the OutPort side)
+        // deleting the OutPort transitively removes its contained SingleConnection too (containment=true).
 
         assertNull(util.getCorrespondingInSysml(vsum, "outY", PortUsage.class));
     }

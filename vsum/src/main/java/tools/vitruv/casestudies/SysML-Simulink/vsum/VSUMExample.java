@@ -22,23 +22,14 @@ import tools.vitruv.framework.views.ViewTypeFactory;
 import tools.vitruv.framework.vsum.VirtualModel;
 import tools.vitruv.framework.vsum.VirtualModelBuilder;
 
-/**
- * Example how to define and use a VSUM, run interactively — requires a real terminal.
- *
- * Unlike VSUMExample in the ASEM-Amalthea case study, no reaction in this project
- * asks an interactive question (there is no ambiguous "which Task subtype?" case
- * here) — this demo simply reproduces the paper's own worked example (Grycz et al.
- * §4.2): adding a Simulink Block with no SysML counterpart, and observing the
- * Requirement/Function/Architecture cascade (Rule D) fire automatically.
- */
+// Reproduces the paper's worked example (Grycz et al. §4.2): adding a Simulink Block with no SysML counterpart triggers the Requirement/Function/Architecture cascade (Rule D) automatically.
 public class VSUMExample {
 
   public static void main(String[] args) throws IOException {
     Path storageFolder = Path.of("vsum/sample-data").toAbsolutePath();
     VirtualModel vsum = createDefaultVirtualModel(storageFolder);
 
-    // E3 + Rule D — adding an unmatched Block triggers the Requirement/Function/
-    // Architecture cascade described in README.md §3.4 Rule D.
+    // E3 + Rule D cascade — see README.md §3.4.
     modifyView(
         getDefaultView(vsum).withChangeRecordingTrait(),
         (CommittableView v) -> {
