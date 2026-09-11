@@ -1,19 +1,10 @@
-package tools.vitruv.sysmlsimulink.vsum;
+package tools.vitruv.methodologisttemplate.vsum;
 
 /*
  * Shared test-side helpers for the SysML <-> Simulink VSUM, mirroring the role
- * VSUMRunner.java plays in the AMALTHEA <-> ASEM reference project: every test in
- * SysMLToSimulinkTest.java and SimulinkToSysMLTest.java goes through these methods
- * instead of touching the EMF model API directly.
- *
- * NOTE on generated Java package names: SysML.ecore/simulink.ecore were fetched as
- * standalone .ecore files (no accompanying .genmodel), so the exact generated Java
- * package/factory names below (org.omg.sysml.lang.sysml.SysMLFactory,
- * hu.bme.mit.massif.simulink.SimulinkFactory) follow each project's established EMF
- * naming convention but were not independently re-verified against a real genmodel,
- * the way tools.vitruv.methodologisttemplate.model.model.ModelFactory was in the
- * reference project. Treat class/factory names here as illustrative of the intended
- * API shape, not as confirmed compiled artifacts.
+ * VSUMRunner.java plays in the ASEM-Amalthea reference project: every test under
+ * SysML-SimulinkTests/ goes through these methods instead of touching the EMF
+ * model API directly.
  */
 
 import java.nio.file.Path;
@@ -52,7 +43,8 @@ import tools.vitruv.framework.views.ViewTypeFactory;
 import tools.vitruv.framework.vsum.VirtualModel;
 import tools.vitruv.framework.vsum.VirtualModelBuilder;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
-import mir.reactions.sysmlSimulink.SysmlSimulinkChangePropagationSpecification;
+import mir.reactions.sysmlToSimulink.SysmlToSimulinkChangePropagationSpecification;
+import mir.reactions.simulinkToSysml.SimulinkToSysmlChangePropagationSpecification;
 
 public class VSUMRunner {
 
@@ -61,7 +53,9 @@ public class VSUMRunner {
 				.withStorageFolder(projectPath)
 				.withUserInteractorForResultProvider(
 						new TestUserInteraction.ResultProvider(new TestUserInteraction()))
-				.withChangePropagationSpecifications(new SysmlSimulinkChangePropagationSpecification())
+				.withChangePropagationSpecifications(List.of(
+						new SysmlToSimulinkChangePropagationSpecification(),
+						new SimulinkToSysmlChangePropagationSpecification()))
 				.buildAndInitialize();
 		vsum.setChangePropagationMode(tools.vitruv.change.propagation.ChangePropagationMode.TRANSITIVE_CYCLIC);
 		return vsum;

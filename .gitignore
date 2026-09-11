@@ -1,0 +1,22 @@
+# VS Code
+.vscode/
+
+# Maven
+target/
+*.log
+.mvn/wrapper/*.jar
+
+# Eclipse
+META-INF
+build.properties
+plugin.properties
+.DS_Store
+.project
+.settings/
+
+# Personal notes
+CLAUDE.md
+docs/
+
+# Generated sample data (build locally via VSUMSampleDataGenerator — see README §4.1)
+vsum/sample-data/

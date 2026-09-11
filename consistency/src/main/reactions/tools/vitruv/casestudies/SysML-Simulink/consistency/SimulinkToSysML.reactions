@@ -1,9 +1,17 @@
-
 import java.io.File;
 
 import "https://www.omg.org/spec/SysML/20250201" as sysml
 import "http://hu.bme.mit.massif/simulink/1.0" as simulink
 
+// Change propagation: Simulink --> SysML v2
+// Existence rules  : E3, E4, E8, E9, E10, E13, E14
+// Property rules   : P2, P4, P5 (Rule D cascade rename)
+// Structural rules : S3 (Block re-parented -> PartUsage re-parented)
+// Rule D           : requirement/function traceability cascade — Simulink -> SysML
+//                    only, see README.md §3.4 Rule D and the NOTE below
+// See README.md §3.4 for the full rule table this maps onto.
+
+// NOTE — segment name must start with lowercase (Reactions DSL requirement)
 reactions: simulinkToSysml
 in reaction to changes in simulink
 execute actions in sysml

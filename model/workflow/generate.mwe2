@@ -1,0 +1,34 @@
+module tools.vitruv.methodologisttemplate.model
+
+import org.eclipse.emf.mwe2.ecore.EcoreGenerator
+import org.eclipse.emf.mwe.utils.StandaloneSetup
+
+var workspaceRoot = ".."
+
+Workflow {
+
+    bean = StandaloneSetup {
+        scanClassPath = true
+        platformUri = workspaceRoot
+    }
+
+    // Both SysML.ecore and simulink.ecore declare custom delegate factories for
+    // their derived features (see the NOTE in model/pom.xml) — unlike AMALTHEA in
+    // the ASEM-Amalthea case study, neither is consumed as a published Maven
+    // artifact here, since no confirmed public Maven coordinates for either project
+    // were available at the time this was written. Both are generated locally
+    // instead; this project's reactions/tests avoid touching any derived feature,
+    // so the missing delegate runtimes are never actually invoked.
+
+    component = EcoreGenerator {
+        genModel = "platform:/resource/tools.vitruv.methodologisttemplate.model/src/main/ecore/SysML.genmodel"
+        srcPath = "platform:/resource/tools.vitruv.methodologisttemplate.model/target/generated-sources/ecore"
+        generateCustomClasses = false
+    }
+
+    component = EcoreGenerator {
+        genModel = "platform:/resource/tools.vitruv.methodologisttemplate.model/src/main/ecore/simulink.genmodel"
+        srcPath = "platform:/resource/tools.vitruv.methodologisttemplate.model/target/generated-sources/ecore"
+        generateCustomClasses = false
+    }
+}
