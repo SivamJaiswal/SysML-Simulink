@@ -43,11 +43,20 @@ reaction PartUsageCreated {
 	call createBlockForPartUsage(affectedEObject)
 }
 
+// IMPORTANT DSL SEMANTICS: "retrieve X corresponding to Y" is a GATE, not a
+// nullable lookup — if Y has no corresponding X, the ENTIRE match block (and thus
+// the whole routine call) silently fails, exactly like "require absence" failing.
+// There is no "require presence" (confirmed: invalid grammar) and no way to get a
+// null-and-continue result from retrieve. So "does the parent already have a
+// Block?" cannot be answered with an if/else inside ONE routine — it has to be
+// TWO separate routines, each gated by a complementary condition (retrieve success
+// vs. require absence), both called unconditionally, mirroring the reference
+// project's swapVariableToConstant pattern (which tries swapMessageToConstant /
+// swapInputToConstant / swapOutputToConstant and only the one whose own retrieve
+// succeeds does anything).
 routine createBlockForPartUsage(sysml::PartUsage part) {
 	match {
 		require absence of simulink::Block corresponding to part
-		val parentElement = part.owningRelationship.owningRelatedElement
-		val parentBlock = retrieve simulink::Block corresponding to parentElement
 	}
 	create {
 		val block = new simulink::Block
@@ -56,12 +65,34 @@ routine createBlockForPartUsage(sysml::PartUsage part) {
 	update {
 		ref.name = part.declaredName
 		block.simulinkRef = ref
-		if (parentBlock !== null) {
-			attachChildBlock(parentElement, parentBlock, part, block)
-		} else {
-			persistProjectRelative(part, block, new File("").toString() + "simulink/" + part.declaredName + ".simulink")
-		}
 		addCorrespondenceBetween(part, block)
+		attachToParentBlockIfExists(part, block)
+		persistAsRootIfNoParentBlock(part, block)
+	}
+}
+
+// Case 1: the parent (part.owningRelationship.owningRelatedElement) already has a
+// corresponding Block -> attach as its child (upgrading it to a SubSystem if
+// needed, via S1's attachChildBlock).
+routine attachToParentBlockIfExists(sysml::PartUsage part, simulink::Block block) {
+	match {
+		val parentBlock = retrieve simulink::Block corresponding to part.owningRelationship.owningRelatedElement
+	}
+	update {
+		val parentElement = part.owningRelationship.owningRelatedElement
+		attachChildBlock(parentElement, parentBlock, part, block)
+	}
+}
+
+// Case 2: the parent has no corresponding Block (e.g. it's the root Package, or
+// any other non-block-having owner) -> persist the new Block as its own resource
+// root, exactly like the reference project's Module/Component persistence.
+routine persistAsRootIfNoParentBlock(sysml::PartUsage part, simulink::Block block) {
+	match {
+		require absence of simulink::Block corresponding to part.owningRelationship.owningRelatedElement
+	}
+	update {
+		persistProjectRelative(part, block, new File("").toString() + "simulink/" + part.declaredName + ".simulink")
 	}
 }
 
@@ -71,11 +102,22 @@ routine createBlockForPartUsage(sysml::PartUsage part) {
 // (P8/P9): a condition (child count crossing zero) forces a swap between two
 // distinct EClasses, since SubSystem is not a flag on Block but its own EClass.
 routine attachChildBlock(sysml::Element parentPart, simulink::Block parentBlock, sysml::PartUsage childPart, simulink::Block child) {
+	// "new pkg::Type" only parses inside a dedicated create block, never inside
+	// update — so, mirroring the reference project's swapMessageToConstant (which
+	// unconditionally pre-creates BOTH a Constant and a SystemConstant, then uses
+	// only whichever the update block's condition picks), subSystem is always
+	// created here even though it is only used in the "not already a SubSystem"
+	// branch below.
+	create {
+		val subSystem = new simulink::SubSystem
+	}
 	update {
-		if (parentBlock instanceof simulink::SubSystem) {
-			(parentBlock as simulink::SubSystem).subBlocks += child
+		// the pkg::Type alias syntax is only valid after "new", inside
+		// "retrieve ... corresponding to", and as a routine parameter type — a
+		// general instanceof/cast expression needs the fully-qualified Java name.
+		if (parentBlock instanceof hu.bme.mit.massif.simulink.SubSystem) {
+			(parentBlock as hu.bme.mit.massif.simulink.SubSystem).subBlocks += child
 		} else {
-			val subSystem = new simulink::SubSystem
 			subSystem.simulinkRef = parentBlock.simulinkRef
 			// move any pre-existing ports/parameters across before subBlocks is set,
 			// so a part that already had interface ports before gaining its first
@@ -89,10 +131,22 @@ routine attachChildBlock(sysml::Element parentPart, simulink::Block parentBlock,
 			subSystem.subBlocks += child
 			// re-splice into whatever previously contained parentBlock (another
 			// SubSystem's subBlocks, or a root SimulinkModel.contains)
-			if (parentBlock.parent !== null) {
-				val grandParent = parentBlock.parent
+			if (parentBlock.^parent !== null) {
+				val grandParent = parentBlock.^parent
 				grandParent.subBlocks -= parentBlock
 				grandParent.subBlocks += subSystem
+			} else {
+				// parentBlock had no ^parent, so it was itself a resource root (see
+				// persistAsRootIfNoParentBlock) — subSystem must be persisted as its
+				// own root here, or it is left dangling with no resource at all,
+				// which fails the VSUM's "every correspondence target must be in a
+				// resource" invariant. The "_subsystem" suffix is required, not
+				// cosmetic: parentBlock is still (briefly) occupying
+				// "simulink/<name>.simulink" at this point, and persisting subSystem
+				// at that identical path collides with it — two resources can't share
+				// one URI in the same ResourceSet, which surfaced as intermittent
+				// "not contained in a resource" save failures (hash-order dependent).
+				persistProjectRelative(parentPart, subSystem, new File("").toString() + "simulink/" + subSystem.simulinkRef.name + "_subsystem.simulink")
 			}
 			removeCorrespondenceBetween(parentPart, parentBlock)
 			removeObject(parentBlock)
@@ -111,31 +165,36 @@ reaction PartUsageDeleted {
 routine deleteBlockForPartUsage(sysml::PartUsage part) {
 	match {
 		val block = retrieve simulink::Block corresponding to part
-		// NOTE: navigating affectedEObject.owningRelationship after a "deleted" event
-		// carries the same ordering risk the reference project flagged for P11 — the
-		// relationship may already be unlinked by the time this routine runs,
-		// depending on exactly when Vitruv fires ElementDeleted relative to EMF's own
-		// containment cleanup. Treat parentElement as best-effort, not guaranteed.
-		val parentElement = part.owningRelationship?.owningRelatedElement
 	}
 	update {
+		// Read block.^parent — a real, non-derived Simulink-side reference — BEFORE
+		// removeObject(block) runs, rather than navigating part.owningRelationship
+		// AFTER the "deleted" event (which the old version of this routine did): that
+		// post-deletion sysml-side navigation is unreliable (may already be unlinked
+		// by the time this routine runs, same ordering risk the reference project
+		// flagged for P11), and empirically left downgradeIfChildless never firing.
+		// Working from the still-intact Simulink side avoids the ordering problem
+		// entirely.
+		val parentBlock = block.^parent
 		removeObject(block)
 		removeCorrespondenceBetween(part, block)
-		if (parentElement !== null) {
-			downgradeIfChildless(parentElement)
+		if (parentBlock !== null) {
+			downgradeIfChildless(parentBlock)
 		}
 	}
 }
 
 // S2 — the parent's corresponding element must revert from SubSystem to a plain
 // Block once its last child is removed, mirroring S1's up-conversion.
-routine downgradeIfChildless(sysml::Element parentPart) {
+routine downgradeIfChildless(simulink::SubSystem parentSubSystem) {
 	match {
-		val parentSubSystem = retrieve simulink::SubSystem corresponding to parentPart
+		val parentPart = retrieve sysml::Element corresponding to parentSubSystem
+	}
+	create {
+		val plainBlock = new simulink::Block
 	}
 	update {
-		if (parentSubSystem !== null && parentSubSystem.subBlocks.empty) {
-			val plainBlock = new simulink::Block
+		if (parentSubSystem.subBlocks.empty) {
 			plainBlock.simulinkRef = parentSubSystem.simulinkRef
 			val movedPorts = newArrayList
 			movedPorts.addAll(parentSubSystem.ports)
@@ -143,10 +202,14 @@ routine downgradeIfChildless(sysml::Element parentPart) {
 			val movedParams = newArrayList
 			movedParams.addAll(parentSubSystem.parameters)
 			plainBlock.parameters += movedParams
-			if (parentSubSystem.parent !== null) {
-				val grandParent = parentSubSystem.parent
+			if (parentSubSystem.^parent !== null) {
+				val grandParent = parentSubSystem.^parent
 				grandParent.subBlocks -= parentSubSystem
 				grandParent.subBlocks += plainBlock
+			} else {
+				// same root-persistence requirement as attachChildBlock's else
+				// branch — parentSubSystem with no ^parent was itself a resource root.
+				persistProjectRelative(parentPart, plainBlock, new File("").toString() + "simulink/" + plainBlock.simulinkRef.name + "_block.simulink")
 			}
 			removeCorrespondenceBetween(parentPart, parentSubSystem)
 			removeObject(parentSubSystem)
@@ -177,7 +240,10 @@ routine syncPartUsageNameToBlock(sysml::PartUsage part) {
 // E5 — PortUsage (direction = in) created -> create an InPort
 reaction InputPortUsageCreated {
 	after element sysml::PortUsage created
-		with affectedEObject.direction == sysml::FeatureDirectionKind.IN
+		// enum literal access needs the fully-qualified Java type too, same rule
+		// as the instanceof/cast fix above — sysml::FeatureDirectionKind is only
+		// valid in the fixed alias positions (new/retrieve/parameter type).
+		with affectedEObject.direction == org.omg.sysml.lang.sysml.FeatureDirectionKind.IN
 	call createInPortForPortUsage(affectedEObject)
 }
 
@@ -201,7 +267,7 @@ routine createInPortForPortUsage(sysml::PortUsage port) {
 // E6 — PortUsage (direction = out) created -> create an OutPort
 reaction OutputPortUsageCreated {
 	after element sysml::PortUsage created
-		with affectedEObject.direction == sysml::FeatureDirectionKind.OUT
+		with affectedEObject.direction == org.omg.sysml.lang.sysml.FeatureDirectionKind.OUT
 	call createOutPortForPortUsage(affectedEObject)
 }
 
@@ -298,24 +364,30 @@ routine syncPortUsageName(sysml::PortUsage port) {
 // corresponding OutPort and InPort
 reaction FlowUsageCreated {
 	after element sysml::FlowUsage created
-		with affectedEObject.flowEnd.size == 2
+		// FlowUsage.flowEnd is derived (see the NOTE in SimulinkToSysML.reactions'
+		// createFlowUsageForConnection) — source/target are the real, non-derived
+		// Relationship features this project actually populates.
+		with affectedEObject.source.size == 1 && affectedEObject.target.size == 1
 	call createConnectionForFlowUsage(affectedEObject)
 }
 
 routine createConnectionForFlowUsage(sysml::FlowUsage flow) {
 	match {
 		require absence of simulink::SingleConnection corresponding to flow
-		// flowEnd.get(0) is expected to be typed by an `out` PortUsage, flowEnd.get(1)
-		// by an `in` PortUsage — see Rule C in the consistency doc.
-		val outPort = retrieve simulink::OutPort corresponding to flow.flowEnd.get(0)
-		val inPort = retrieve simulink::InPort corresponding to flow.flowEnd.get(1)
+		// source is expected to be the `out` PortUsage, target the `in` PortUsage —
+		// see Rule C in the consistency doc.
+		val outPort = retrieve simulink::OutPort corresponding to flow.source.get(0)
+		val inPort = retrieve simulink::InPort corresponding to flow.target.get(0)
 	}
 	create {
 		val connection = new simulink::SingleConnection
 	}
 	update {
-		connection.from = outPort
-		connection.to = inPort
+		// plain "connection.from = outPort" field-assignment sugar does not parse
+		// here (a grammar conflict, not a semantic error) — explicit setter calls
+		// sidestep it.
+		connection.setFrom(outPort)
+		connection.setTo(inPort)
 		addCorrespondenceBetween(flow, connection)
 	}
 }

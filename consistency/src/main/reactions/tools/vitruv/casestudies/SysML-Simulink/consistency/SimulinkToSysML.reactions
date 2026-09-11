@@ -33,6 +33,15 @@ routine attachAsMember(sysml::Element parent, sysml::Element member) {
 	update {
 		parent.ownedRelationship += membership
 		membership.ownedRelatedElement += member
+		// nestedPart was stripped of its "derived" marker (see CLAUDE.md /
+		// model/README note on settingDelegates) to avoid an
+		// UnsupportedOperationException at runtime, which means it is now a
+		// plain stored reference that nothing populates automatically — write
+		// it explicitly here so PartUsage-nesting stays visible on that
+		// feature too (see SimulinkToSysMLCompletenessTest.c1).
+		if (parent instanceof org.omg.sysml.lang.sysml.PartUsage && member instanceof org.omg.sysml.lang.sysml.PartUsage) {
+			(parent as org.omg.sysml.lang.sysml.PartUsage).nestedPart += member as org.omg.sysml.lang.sysml.PartUsage
+		}
 	}
 }
 
@@ -51,26 +60,61 @@ reaction BlockCreated {
 	call createPartUsageForBlock(affectedEObject)
 }
 
+// A Block registered directly as a resource root (e.g. VSUMRunner.addBlock, or any
+// real top-level Simulink file) generates an InsertRootEObject change, NOT a
+// CreateEObject one — "created" and "inserted as root" are distinct trigger kinds
+// in this DSL (compare tutorial.md's SystemInsertedAsRoot reaction), so a root-level
+// Block needs its own reaction alongside BlockCreated above, which only fires for
+// Blocks inserted into an existing SubSystem.subBlocks.
+reaction BlockInsertedAsRoot {
+	after element simulink::Block inserted as root
+	call createPartUsageForBlock(newValue)
+}
+
+// IMPORTANT DSL SEMANTICS: "retrieve X corresponding to Y" gates the whole match —
+// if Y has no corresponding X, the routine call silently fails rather than binding
+// null and continuing (confirmed empirically; there is no "require presence" —
+// only "require absence" is valid grammar). So "does block.parent have a
+// PartUsage?" needs two separate, complementarily-gated routines rather than an
+// if/else on one retrieved value — see the identical note in
+// SysMLToSimulink.reactions' createBlockForPartUsage.
 routine createPartUsageForBlock(simulink::Block block) {
 	match {
 		require absence of sysml::PartUsage corresponding to block
-		// Block.parent is a real, non-derived eOpposite of SubSystem.subBlocks — unlike
-		// the SysML side, no indirection workaround is needed here.
-		val parentPart = retrieve sysml::PartUsage corresponding to block.parent
 	}
 	create {
 		val part = new sysml::PartUsage
 	}
 	update {
 		part.declaredName = block.simulinkRef.name
-		if (parentPart !== null) {
-			attachAsMember(parentPart, part)
-		} else {
-			persistProjectRelative(block, part, new File("").toString() + "sysml/" + block.simulinkRef.name + ".sysml")
-		}
 		addCorrespondenceBetween(block, part)
+		attachToParentPartIfExists(block, part)
+		persistAsRootIfNoParentPart(block, part)
 		// Rule D cascade — see createFunctionAndRequirementForPartUsage below.
 		createFunctionAndRequirementForPartUsage(part)
+	}
+}
+
+// Case 1: block.parent already has a corresponding PartUsage -> attach as its member.
+routine attachToParentPartIfExists(simulink::Block block, sysml::PartUsage part) {
+	match {
+		// Block.parent is a real, non-derived eOpposite of SubSystem.subBlocks — unlike
+		// the SysML side, no indirection workaround is needed here.
+		val parentPart = retrieve sysml::PartUsage corresponding to block.^parent
+	}
+	update {
+		attachAsMember(parentPart, part)
+	}
+}
+
+// Case 2: block has no parent (a root Block) -> persist the new PartUsage as its
+// own resource root.
+routine persistAsRootIfNoParentPart(simulink::Block block, sysml::PartUsage part) {
+	match {
+		require absence of sysml::PartUsage corresponding to block.^parent
+	}
+	update {
+		persistProjectRelative(block, part, new File("").toString() + "sysml/" + block.simulinkRef.name + ".sysml")
 	}
 }
 
@@ -84,17 +128,31 @@ routine createFunctionAndRequirementForPartUsage(sysml::PartUsage part) {
 	match {
 		require absence of sysml::ActionUsage corresponding to part
 		require absence of sysml::RequirementUsage corresponding to part
-		val owner = part.owningRelationship.owningRelatedElement
 	}
 	create {
 		val function = new sysml::ActionUsage
 		val requirement = new sysml::RequirementUsage
 	}
 	update {
+		// match blocks only support "require absence/presence of ... corresponding
+		// to ..." and "val x = retrieve ... corresponding to ..." — a plain
+		// navigation val has to live in update instead.
+		//
+		// part.owningRelationship is legitimately null when part is itself a root
+		// object (persisted via persistProjectRelative rather than attached via
+		// attachAsMember, see persistAsRootIfNoParentPart above) — a plain field
+		// read + if/else works fine here (this is NOT the "retrieve...corresponding
+		// to" construct, which is the one that cannot tolerate a missing result).
 		function.declaredName = "process" + part.declaredName
 		requirement.declaredName = part.declaredName + "Requirement"
-		attachAsMember(owner, function)
-		attachAsMember(owner, requirement)
+		if (part.owningRelationship !== null) {
+			val owner = part.owningRelationship.owningRelatedElement
+			attachAsMember(owner, function)
+			attachAsMember(owner, requirement)
+		} else {
+			persistProjectRelative(part, function, new File("").toString() + "sysml/" + function.declaredName + ".sysml")
+			persistProjectRelative(part, requirement, new File("").toString() + "sysml/" + requirement.declaredName + ".sysml")
+		}
 		addCorrespondenceBetween(part, function)
 		addCorrespondenceBetween(part, requirement)
 	}
@@ -131,41 +189,91 @@ routine deletePartUsageForBlock(simulink::Block block) {
 // the rename to the Rule D siblings, if present — see P5 in the consistency doc)
 reaction BlockRenamed {
 	after attribute replaced at simulink::IdentifierReference[name]
-		with affectedEObject.element.oclIsKindOf(simulink::Block)
+		// oclIsKindOf is OCL, not Xtend — this DSL's boolean guards use plain
+		// Xtend "instanceof", and (like casts/enum literals) it needs the
+		// fully-qualified Java type rather than the simulink:: alias.
+		//
+		// IdentifierReference/SimulinkReference.element has NO eOpposite declared
+		// in simulink.ecore, so nothing keeps it populated automatically (and
+		// setting it by hand from a routine/VSUMRunner turned out to be silently
+		// dropped by ChangeRecordingTrait's diff-and-replay across the same
+		// transaction that created the owning Block/Port — likely because the
+		// reference and its target are created together in one transaction and
+		// the circular pair doesn't resolve on replay). eContainer() is a plain
+		// built-in EMF mechanism instead: simulinkRef is containment=true, so it
+		// is ALWAYS populated correctly with no extra bookkeeping needed.
+		with affectedEObject.eContainer() instanceof hu.bme.mit.massif.simulink.Block
 	call syncBlockNameToPartUsage(affectedEObject)
 }
 
+// NOTE: this used to be a single routine with one match block chaining THREE
+// "retrieve ... corresponding to" lookups (part, then function, then
+// requirement). Per the "retrieve is a gate" rule documented in
+// SysMLToSimulink.reactions' createBlockForPartUsage, ALL of them have to
+// succeed for ANY of the match to succeed — so a PartUsage that only exists on
+// the SysML side (e.g. created via VSUMRunner.addPartUsage, never through the
+// Simulink->SysML Rule D cascade, so it has no ActionUsage/RequirementUsage
+// correspondence at all) silently blocked even the plain part.declaredName
+// update. Splitting into three independently-gated routines, each called
+// unconditionally, lets the core rename succeed regardless of whether the
+// cascade siblings exist.
 routine syncBlockNameToPartUsage(simulink::IdentifierReference ref) {
 	match {
-		val part = retrieve sysml::PartUsage corresponding to (ref.element as simulink::Block)
-		val function = retrieve sysml::ActionUsage corresponding to part
-		val requirement = retrieve sysml::RequirementUsage corresponding to part
+		// no cast needed: retrieve's "corresponding to" target just needs an
+		// EObject to look up in the correspondence graph — the reaction's own
+		// "with" guard above already ensures ref.eContainer() is a Block here.
+		val part = retrieve sysml::PartUsage corresponding to ref.eContainer()
 	}
 	update {
 		part.declaredName = ref.name
-		if (function !== null) {
-			function.declaredName = "process" + ref.name
-		}
-		if (requirement !== null) {
-			requirement.declaredName = ref.name + "Requirement"
-		}
+		syncCascadeFunctionName(part, ref.name)
+		syncCascadeRequirementName(part, ref.name)
 	}
 }
 
-// S3 — Block moved into a SubSystem.subBlocks (gains a parent) -> re-parent the
-// corresponding PartUsage under the corresponding parent PartUsage
-reaction BlockReparented {
-	after attribute replaced at simulink::Block[parent]
-	call reparentPartUsage(affectedEObject)
-}
-
-routine reparentPartUsage(simulink::Block block) {
+routine syncCascadeFunctionName(sysml::PartUsage part, String newName) {
 	match {
-		val part = retrieve sysml::PartUsage corresponding to block
-		val newParentPart = retrieve sysml::PartUsage corresponding to block.parent
+		val function = retrieve sysml::ActionUsage corresponding to part
 	}
 	update {
-		if (newParentPart !== null) {
+		function.declaredName = "process" + newName
+	}
+}
+
+routine syncCascadeRequirementName(sysml::PartUsage part, String newName) {
+	match {
+		val requirement = retrieve sysml::RequirementUsage corresponding to part
+	}
+	update {
+		requirement.declaredName = newName + "Requirement"
+	}
+}
+
+// S3 — Block inserted into a SubSystem.subBlocks -> if it already has a PartUsage
+// correspondence (i.e. it's an existing Block being MOVED, not created fresh),
+// re-parent that PartUsage under the new parent's PartUsage.
+//
+// NOTE: Block.parent is an EReference (the eOpposite of SubSystem.subBlocks), and
+// this DSL's "after attribute replaced" event only fires for EAttributes, not
+// EReferences (see CLAUDE.md) — so this cannot listen on Block[parent] directly.
+// Instead it listens on the real containment-insertion event on the OTHER side.
+// This event ALSO fires when a brand-new Block gains its first parent at creation
+// time (already handled by E3/BlockCreated) — the "part !== null" guard below is
+// what keeps the two from double-firing, the same disambiguation-by-guard pattern
+// the reference project uses for E9/E10's Label-creation reactions sharing one
+// underlying event.
+reaction BlockReparented {
+	after element simulink::Block inserted in simulink::SubSystem[subBlocks]
+	call reparentPartUsageIfExisting(affectedEObject, newValue)
+}
+
+routine reparentPartUsageIfExisting(simulink::SubSystem parentBlock, simulink::Block block) {
+	match {
+		val part = retrieve sysml::PartUsage corresponding to block
+		val newParentPart = retrieve sysml::PartUsage corresponding to parentBlock
+	}
+	update {
+		if (part !== null && newParentPart !== null) {
 			attachAsMember(newParentPart, part)
 		}
 	}
@@ -191,7 +299,7 @@ routine createPortUsageForInPort(simulink::InPort inPort) {
 	}
 	update {
 		port.declaredName = inPort.simulinkRef.name
-		port.direction = sysml::FeatureDirectionKind.IN
+		port.direction = org.omg.sysml.lang.sysml.FeatureDirectionKind.IN
 		attachAsMember(part, port)
 		addCorrespondenceBetween(inPort, port)
 	}
@@ -213,7 +321,7 @@ routine createPortUsageForOutPort(simulink::OutPort outPort) {
 	}
 	update {
 		port.declaredName = outPort.simulinkRef.name
-		port.direction = sysml::FeatureDirectionKind.OUT
+		port.direction = org.omg.sysml.lang.sysml.FeatureDirectionKind.OUT
 		attachAsMember(part, port)
 		addCorrespondenceBetween(outPort, port)
 	}
@@ -241,13 +349,15 @@ routine deletePortUsageForPort(simulink::Port port) {
 // P4 — Port's simulinkRef.name changed -> update PortUsage.declaredName
 reaction PortRenamed {
 	after attribute replaced at simulink::IdentifierReference[name]
-		with affectedEObject.element.oclIsKindOf(simulink::Port)
+		// see the identical note on BlockRenamed above re: eContainer() vs the
+		// unreliable "element" cross-reference.
+		with affectedEObject.eContainer() instanceof hu.bme.mit.massif.simulink.Port
 	call syncPortNameToPortUsage(affectedEObject)
 }
 
 routine syncPortNameToPortUsage(simulink::IdentifierReference ref) {
 	match {
-		val portUsage = retrieve sysml::PortUsage corresponding to (ref.element as simulink::Port)
+		val portUsage = retrieve sysml::PortUsage corresponding to ref.eContainer()
 	}
 	update {
 		portUsage.declaredName = ref.name
@@ -268,15 +378,36 @@ reaction SingleConnectionCreated {
 routine createFlowUsageForConnection(simulink::SingleConnection connection) {
 	match {
 		require absence of sysml::FlowUsage corresponding to connection
-		val outPortUsage = retrieve sysml::PortUsage corresponding to connection.from
-		val inPortUsage = retrieve sysml::PortUsage corresponding to connection.to
+		val outPortUsage = retrieve sysml::PortUsage corresponding to connection.^from
+		val inPortUsage = retrieve sysml::PortUsage corresponding to connection.^to
 	}
 	create {
 		val flow = new sysml::FlowUsage
 	}
 	update {
-		flow.flowEnd += outPortUsage
-		flow.flowEnd += inPortUsage
+		// FlowUsage.flowEnd is itself derived (redefines Association.associationEnd),
+		// so it cannot be written to directly. FlowUsage IS a Relationship (via
+		// Connector), and Relationship.source/target ARE real, non-derived
+		// EReferences — these are what actually establish the connection; flowEnd is
+		// just Association's computed VIEW over source+target and would need its own
+		// redefined-feature wiring to reflect them, which is out of scope here (same
+		// category of gap as Rule D's omitted Satisfy/Perform/Allocate wiring).
+		flow.source += outPortUsage
+		flow.target += inPortUsage
+		// source/target are plain (non-containment) references, so unlike
+		// attachAsMember-built members, flow itself is not yet parented anywhere.
+		// Anchoring a fresh persistProjectRelative resource to the CONNECTION
+		// itself is fragile: the connection is a short-lived object contained
+		// inside an OutPort (E14 deletes it), and once it disappears the
+		// anchored flow resource's URI (derived from the connection's
+		// resource at persist time) can be left referencing a resource that
+		// looks unreachable, which the UUID resolver then flags as dangling
+		// on the next save/transaction. Attaching flow as a real ownedMember
+		// of the (stable, long-lived) PartUsage that owns the outgoing port
+		// avoids that entirely and mirrors VSUMRunner.addFlowUsage's own
+		// attach()-based approach on the SysML-originated side.
+		val owner = outPortUsage.owningRelationship.owningRelatedElement
+		attachAsMember(owner, flow)
 		addCorrespondenceBetween(connection, flow)
 	}
 }
