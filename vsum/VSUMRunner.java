@@ -151,10 +151,19 @@ public class VSUMRunner {
 	// ── Simulink-side mutators ─────────────────────────────────────────────
 
 	public String addBlock(VirtualModel vsum, Path filePath, String name) {
+		return addBlock(vsum, filePath, name, false);
+	}
+
+	// asSubSystem=true when the test will nest a child under this root block later
+	// (addSubBlock below requires an actual SubSystem to attach to, since plain
+	// Block has no subBlocks feature at all — SubSystem is not a flag on Block, it
+	// is its own EClass, same as on the reactions side, see S1 in
+	// SysMLToSimulink.reactions).
+	public String addBlock(VirtualModel vsum, Path filePath, String name, boolean asSubSystem) {
 		CommittableView view = getDefaultView(vsum, List.of(SimulinkModel.class)).withChangeRecordingTrait();
 		modifyView(view, v -> {
 			SimulinkModel model = SimulinkFactory.eINSTANCE.createSimulinkModel();
-			Block block = SimulinkFactory.eINSTANCE.createBlock();
+			Block block = asSubSystem ? SimulinkFactory.eINSTANCE.createSubSystem() : SimulinkFactory.eINSTANCE.createBlock();
 			setSimulinkName(block, name);
 			model.getContains().add(block);
 			v.registerRoot(model, URI.createFileURI(filePath.toString() + "/example.simulink"));
@@ -165,7 +174,7 @@ public class VSUMRunner {
 	public String addSubBlock(VirtualModel vsum, String parentName, String childName, boolean asSubSystem) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
-			SubSystem parent = findByNameAndType(getSimulinkRoot(v), SubSystem.class, parentName);
+			SubSystem parent = (SubSystem) findByNameAndType(getSimulinkRoot(v), Block.class, parentName);
 			Block child = asSubSystem ? SimulinkFactory.eINSTANCE.createSubSystem() : SimulinkFactory.eINSTANCE.createBlock();
 			setSimulinkName(child, childName);
 			parent.getSubBlocks().add(child);
@@ -193,6 +202,27 @@ public class VSUMRunner {
 			block.getPorts().add(port);
 		});
 		return portName;
+	}
+
+	// Moves an existing Block (found in ANY registered SimulinkModel root, not just
+	// the first) into an existing SubSystem's subBlocks, exercising the S3 reaction
+	// (BlockReparented, listening on "attribute replaced at simulink::Block[parent]")
+	// rather than E3's creation-time parent lookup.
+	public void reparentBlock(VirtualModel vsum, String blockName, String newParentName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Block block = findBlockAcrossRoots(v, blockName);
+			SubSystem newParent = (SubSystem) findBlockAcrossRoots(v, newParentName);
+			newParent.getSubBlocks().add(block);
+		});
+	}
+
+	private Block findBlockAcrossRoots(View v, String name) {
+		for (EObject root : v.getRootObjects(SimulinkModel.class)) {
+			Block found = findByNameAndType(root, Block.class, name);
+			if (found != null) return found;
+		}
+		return null;
 	}
 
 	public void addSingleConnection(VirtualModel vsum, String outPortName, String inPortName) {
