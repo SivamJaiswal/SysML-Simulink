@@ -47,9 +47,12 @@ public class SimulinkToSysMLStructuralTest {
         util.reparentBlock(vsum, "Bracket", "Housing");
 
         PartUsage bracket = util.getCorrespondingInSysml(vsum, "Bracket", PartUsage.class);
-        PartUsage housing = util.getCorrespondingInSysml(vsum, "Housing", PartUsage.class);
         assertNotNull(bracket.getOwningRelationship(), "Bracket's PartUsage must now have an owning relationship");
-        assertEquals(housing, bracket.getOwningRelationship().getOwningRelatedElement(),
+        // Compare by name, not by reference: getCorrespondingInSysml builds a fresh
+        // view per call (see VSUMRunner's header comment on that method), so an
+        // independently-queried "housing" PartUsage is not guaranteed to be the same
+        // Java object as the one reached by navigating from bracket in this view.
+        assertEquals("Housing", ((org.omg.sysml.lang.sysml.Element) bracket.getOwningRelationship().getOwningRelatedElement()).getDeclaredName(),
                 "Bracket's PartUsage must be nested under Housing's PartUsage, mirroring the Simulink subBlocks move");
     }
 }

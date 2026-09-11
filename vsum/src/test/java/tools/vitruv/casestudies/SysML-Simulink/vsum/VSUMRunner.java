@@ -33,7 +33,6 @@ import hu.bme.mit.massif.simulink.SubSystem;
 import hu.bme.mit.massif.simulink.InPort;
 import hu.bme.mit.massif.simulink.OutPort;
 import hu.bme.mit.massif.simulink.SingleConnection;
-import hu.bme.mit.massif.simulink.SimulinkModel;
 import hu.bme.mit.massif.simulink.IdentifierReference;
 
 import tools.vitruv.change.testutils.TestUserInteraction;
@@ -113,23 +112,42 @@ public class VSUMRunner {
 			PortUsage outPort = findByNameAndType(getSysmlRoot(v), PortUsage.class, outPortName);
 			PortUsage inPort = findByNameAndType(getSysmlRoot(v), PortUsage.class, inPortName);
 			FlowUsage flow = SysMLFactory.eINSTANCE.createFlowUsage();
-			flow.getFlowEnd().add(outPort);
-			flow.getFlowEnd().add(inPort);
+			// findByNameAndType/effectiveName match Elements by declaredName — without
+			// this, deleteFromSysml("outA->inA", FlowUsage.class) can never find the
+			// flow it's supposed to remove.
+			flow.setDeclaredName(outPortName + "->" + inPortName);
+			// FlowUsage.flowEnd is derived (redefines Association.associationEnd);
+			// FlowUsage IS a Relationship (via Connector), so source/target are the
+			// real, settable references actually used here — see the NOTE in
+			// consistency/.../SimulinkToSysML.reactions' createFlowUsageForConnection.
+			flow.getSource().add(outPort);
+			flow.getTarget().add(inPort);
 			attach(getSysmlRoot(v), flow);
 		});
 		return outPortName + "->" + inPortName;
 	}
 
 	public void renameInSysml(VirtualModel vsum, String oldName, Class<? extends EObject> type, String newName) {
-		CommittableView view = getSysmlView(vsum).withChangeRecordingTrait();
-		modifyView(view, v -> setDeclaredName(findByNameAndType(getSysmlRoot(v), type, oldName), newName));
+		// Must search every sysml root, not just the Package — a PartUsage created
+		// from a root-level Block (persistAsRootIfNoParentPart, no Package parent)
+		// lives in its own resource root, so anything nested under IT (like a
+		// PortUsage added afterwards) is unreachable from the Package tree. Same
+		// dual-root-type search getCorrespondingInSysml already relies on.
+		CommittableView view = getSysmlSearchView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> setDeclaredName(findAnywhereInSysml(v, type, oldName), newName));
 	}
 
 	public void deleteFromSysml(VirtualModel vsum, String name, Class<? extends EObject> type) {
-		CommittableView view = getSysmlView(vsum).withChangeRecordingTrait();
+		CommittableView view = getSysmlSearchView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
-			EObject el = findByNameAndType(getSysmlRoot(v), type, name);
-			if (el != null) EcoreUtil.remove(el);
+			EObject el = findAnywhereInSysml(v, type, name);
+			// EcoreUtil.remove only detaches el from its container — it leaves any
+			// live, non-containment cross-references TO el (e.g. PartUsage.nestedPart,
+			// which we now populate explicitly since it was de-derived, or
+			// FlowUsage.source/target) still pointing at an object no longer in any
+			// resource, which XMI save later rejects as a dangling href.
+			// EcoreUtil.delete(el, true) also cleans up those cross-references.
+			if (el != null) EcoreUtil.delete(el, true);
 		});
 	}
 
@@ -154,13 +172,18 @@ public class VSUMRunner {
 	// is its own EClass, same as on the reactions side, see S1 in
 	// SysMLToSimulink.reactions).
 	public String addBlock(VirtualModel vsum, Path filePath, String name, boolean asSubSystem) {
-		CommittableView view = getDefaultView(vsum, List.of(SimulinkModel.class)).withChangeRecordingTrait();
+		// Register the Block ITSELF as the resource root, not a freshly-built
+		// SimulinkModel wrapper containing it — a wrapper built and populated BEFORE
+		// registerRoot() means the Block's insertion into SimulinkModel.contains
+		// happens while nothing is tracking the wrapper yet, so no "Block created"
+		// change is ever recorded (registerRoot only captures the object actually
+		// passed to it). This mirrors the reference project's addModule, which
+		// registers the Module directly rather than wrapping it in a container object.
+		CommittableView view = getDefaultView(vsum, List.of(Block.class)).withChangeRecordingTrait();
 		modifyView(view, v -> {
-			SimulinkModel model = SimulinkFactory.eINSTANCE.createSimulinkModel();
 			Block block = asSubSystem ? SimulinkFactory.eINSTANCE.createSubSystem() : SimulinkFactory.eINSTANCE.createBlock();
 			setSimulinkName(block, name);
-			model.getContains().add(block);
-			v.registerRoot(model, URI.createFileURI(filePath.toString() + "/example.simulink"));
+			v.registerRoot(block, URI.createFileURI(filePath.toString() + "/" + name + ".simulink"));
 		});
 		return name;
 	}
@@ -212,7 +235,7 @@ public class VSUMRunner {
 	}
 
 	private Block findBlockAcrossRoots(View v, String name) {
-		for (EObject root : v.getRootObjects(SimulinkModel.class)) {
+		for (EObject root : v.getRootObjects(Block.class)) {
 			Block found = findByNameAndType(root, Block.class, name);
 			if (found != null) return found;
 		}
@@ -240,16 +263,29 @@ public class VSUMRunner {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
 			EObject el = findByNameAndType(getSimulinkRoot(v), type, name);
-			if (el != null) EcoreUtil.remove(el);
+			// see the identical note in deleteFromSysml — e.g. deleting an OutPort also
+			// removes its contained SingleConnection, but the surviving InPort's
+			// non-containment InPort.connection cross-reference to that same
+			// SingleConnection needs cleaning up too, or XMI save rejects it as dangling.
+			if (el != null) EcoreUtil.delete(el, true);
 		});
 	}
 
 	// simulinkRef.name, not SimulinkElement.name — the latter is derived, see
 	// Simulink_Metamodel_Description.md §3.
 	private void setSimulinkName(hu.bme.mit.massif.simulink.SimulinkElement element, String name) {
-		IdentifierReference ref = SimulinkFactory.eINSTANCE.createIdentifierReference();
+		// Renaming must mutate the EXISTING IdentifierReference's name attribute in
+		// place — replacing simulinkRef wholesale with a freshly-built IdentifierReference
+		// (as this used to do unconditionally) produces a "reference replaced" change on
+		// SimulinkElement[simulinkRef], not the "attribute replaced at
+		// simulink::IdentifierReference[name]" event the P2/P4 rename reactions listen
+		// for, so renames would silently never propagate.
+		IdentifierReference ref = element.getSimulinkRef();
+		if (ref == null) {
+			ref = SimulinkFactory.eINSTANCE.createIdentifierReference();
+			element.setSimulinkRef(ref);
+		}
 		ref.setName(name);
-		element.setSimulinkRef(ref);
 	}
 
 	// ── correspondence lookup used by every test ───────────────────────────
@@ -287,15 +323,32 @@ public class VSUMRunner {
 	}
 
 	private View getSimulinkView(VirtualModel vsum) {
-		return getDefaultView(vsum, List.of(SimulinkModel.class));
+		return getDefaultView(vsum, List.of(Block.class));
+	}
+
+	// Selects every kind of sysml root at once (the Package plus any
+	// independently-persisted PartUsage/ActionUsage/RequirementUsage roots — see
+	// persistAsRootIfNoParentPart in SimulinkToSysML.reactions), so a single
+	// committable view/transaction can find-and-mutate an element regardless of
+	// which kind of root it ended up under.
+	private View getSysmlSearchView(VirtualModel vsum) {
+		return getDefaultView(vsum, List.of(Package.class, PartUsage.class, ActionUsage.class, RequirementUsage.class));
+	}
+
+	private <T extends EObject> T findAnywhereInSysml(View v, Class<T> type, String name) {
+		for (EObject root : v.getRootObjects()) {
+			T found = findByNameAndType(root, type, name);
+			if (found != null) return found;
+		}
+		return null;
 	}
 
 	private Package getSysmlRoot(View v) {
 		return v.getRootObjects(Package.class).iterator().next();
 	}
 
-	private SimulinkModel getSimulinkRoot(View v) {
-		return v.getRootObjects(SimulinkModel.class).iterator().next();
+	private Block getSimulinkRoot(View v) {
+		return v.getRootObjects(Block.class).iterator().next();
 	}
 
 	private View getDefaultView(VirtualModel vsum, Collection<Class<?>> rootTypes) {

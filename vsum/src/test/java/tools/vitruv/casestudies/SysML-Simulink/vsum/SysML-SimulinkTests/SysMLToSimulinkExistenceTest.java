@@ -15,6 +15,7 @@ import hu.bme.mit.massif.simulink.Block;
 import hu.bme.mit.massif.simulink.SubSystem;
 import hu.bme.mit.massif.simulink.InPort;
 import hu.bme.mit.massif.simulink.OutPort;
+import hu.bme.mit.massif.simulink.SingleConnection;
 
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.xmi.impl.XMIResourceFactoryImpl;
@@ -141,7 +142,9 @@ public class SysMLToSimulinkExistenceTest {
         OutPort outPort = util.getCorrespondingInSimulink(vsum, "out1", OutPort.class);
         assertNotNull(outPort, "OutPort must exist before the connection can be asserted");
         assertNotNull(outPort.getConnection(), "SingleConnection must be created for the FlowUsage");
-        assertEquals("in1", outPort.getConnection().getTo().getSimulinkRef().getName(),
+        assertInstanceOf(SingleConnection.class, outPort.getConnection());
+        SingleConnection connection = (SingleConnection) outPort.getConnection();
+        assertEquals("in1", connection.getTo().getSimulinkRef().getName(),
                 "the connection must target the corresponding InPort");
     }
 
