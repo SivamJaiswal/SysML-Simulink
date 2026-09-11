@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>tools.vitruv</groupId>
+    <artifactId>tools.vitruv.methodologisttemplate</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>tools.vitruv.methodologisttemplate.model</artifactId>
+
+  <name>Model</name>
+  <description />
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifestFile>${project.basedir}/META-INF/MANIFEST.MF</manifestFile>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.eclipse.emf</groupId>
+      <artifactId>org.eclipse.emf.common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.emf</groupId>
+      <artifactId>org.eclipse.emf.ecore</artifactId>
+    </dependency>
+    <!--
+      Unlike the ASEM-Amalthea case study (where AMALTHEA needed to be consumed as a
+      published artifact but ASEM was clean enough to generate locally), BOTH
+      SysML.ecore and simulink.ecore declare custom delegate factories on their root
+      EPackage:
+
+        SysML.ecore  : settingDelegates/invocationDelegates = "http://www.omg.org/spec/SysML"
+        simulink.ecore: settingDelegates = "org.eclipse.viatra.query.querybasedfeature"
+
+      These require each project's own runtime library (the SysML v2 Pilot
+      Implementation's delegate factory; MASSIF's VIATRA query engine + .vql pattern
+      specifications) to be registered on the classpath before any DERIVED feature
+      can be correctly computed at runtime. Neither is fetched here — this project's
+      reactions/tests (see consistency/ and vsum/) deliberately touch only the real,
+      non-derived features documented in README.md §1/§2 (declaredName, direction,
+      ownedRelationship/ownedRelatedElement on the SysML side; simulinkRef, ports,
+      parameters, subBlocks on the Simulink side), specifically so the missing
+      delegate runtimes never need to be invoked. Both ecores are still generated
+      locally below via generate.mwe2 (plain EMF codegen does not require the
+      delegate runtime to be present at generation time, only at the moment a
+      derived getter is actually called) — if a future change needs a real derived
+      value (e.g. FlowUsage.flowDefinition), add the appropriate runtime dependency
+      here first.
+    -->
+  </dependencies>
+</project>

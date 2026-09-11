@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.0"?>
+<!--
+Bind to grammar/schema...
+-->
+<plugin>
+
+   <!--
+     Both metamodels are generated locally from the .ecore/.genmodel pairs in
+     src/main/ecore/ — see model/workflow/generate.mwe2 and the NOTE in model/pom.xml
+     for why (unlike AMALTHEA in the ASEM-Amalthea case study) neither is consumed as
+     a published Maven artifact here.
+   -->
+
+   <extension point="org.eclipse.emf.ecore.generated_package">
+      <!-- @generated sysml -->
+      <package
+            uri="https://www.omg.org/spec/SysML/20250201"
+            class="org.omg.sysml.lang.sysml.SysMLPackage"
+            genModel="src/main/ecore/SysML.genmodel"/>
+   </extension>
+
+   <extension point="org.eclipse.emf.ecore.generated_package">
+      <!-- @generated simulink -->
+      <package
+            uri="http://hu.bme.mit.massif/simulink/1.0"
+            class="hu.bme.mit.massif.simulink.SimulinkPackage"
+            genModel="src/main/ecore/simulink.genmodel"/>
+   </extension>
+</plugin>

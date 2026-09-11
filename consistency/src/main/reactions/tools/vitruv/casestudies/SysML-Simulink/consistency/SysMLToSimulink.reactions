@@ -1,9 +1,18 @@
-
 import java.io.File;
 
 import "https://www.omg.org/spec/SysML/20250201" as sysml
 import "http://hu.bme.mit.massif/simulink/1.0" as simulink
 
+// Change propagation: SysML v2 --> Simulink
+// Existence rules  : E1, E2, E5, E6, E7, E11, E12
+// Property rules   : P1, P3
+// Structural rules : S1, S2 (Block <-> SubSystem type migration, folded into
+//                    E1/E2 — see SECTION Rule A)
+// See README.md §3.4 for the full rule table this maps onto.
+// Correspondences are created here; SimulinkToSysML.reactions only looks them up
+// (except for its own Rule D cascade, which is Simulink -> SysML only).
+
+// NOTE — segment name must start with lowercase (Reactions DSL requirement)
 reactions: sysmlToSimulink
 in reaction to changes in sysml
 execute actions in simulink
