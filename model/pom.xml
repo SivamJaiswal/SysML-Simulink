@@ -55,7 +55,7 @@
         SysML.ecore  : settingDelegates/invocationDelegates = "http://www.omg.org/spec/SysML"
         simulink.ecore: settingDelegates = "org.eclipse.viatra.query.querybasedfeature"
 
-      These require each project's own runtime library (the SysML v2 Pilot
+      These require each project's own runtime library (the SysML Pilot
       Implementation's delegate factory; MASSIF's VIATRA query engine + .vql pattern
       specifications) to be registered on the classpath before any DERIVED feature
       can be correctly computed at runtime. Neither is fetched here — this project's
