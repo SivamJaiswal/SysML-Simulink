@@ -1,27 +1,27 @@
-# SysML v2 ↔ Simulink
+# SysML ↔ Simulink
 
 **Vitruv-Based Bidirectional Model Consistency Preservation**
 
-A Maven project implementing bidirectional change propagation between the SysML v2 metamodel (OMG Pilot Implementation) and the Simulink metamodel (MASSIF) using the Vitruv framework, grounded in a real KIT/SFB 1608 "Convide" research case study.
+A Maven project implementing bidirectional change propagation between the SysML metamodel (OMG Pilot Implementation) and the Simulink metamodel (MASSIF) using the Vitruv framework, grounded in a real KIT/SFB 1608 "Convide" research case study.
 
 ## Table of Contents
 
-- [1. SysML v2 Metamodel Description](#1-sysml-v2-metamodel-description)
+- [1. SysML Metamodel Description](#1-sysml-metamodel-description)
 - [2. Simulink Metamodel Description](#2-simulink-metamodel-description)
 - [3. Semantic Overlaps and Consistency Preservation Rules](#3-semantic-overlaps-and-consistency-preservation-rules)
 - [4. Building and Running](#4-building-and-running)
 
 ---
 
-## 1. SysML v2 Metamodel Description
+## 1. SysML Metamodel Description
 
-*OMG SysML v2 Pilot Implementation*
+*OMG SysML Pilot Implementation*
 
 URI: `https://www.omg.org/spec/SysML/20250201` | Source: [Systems-Modeling/SysML-v2-Pilot-Implementation](https://github.com/Systems-Modeling/SysML-v2-Pilot-Implementation)
 
 ### 1.1 Overview
 
-SysML v2 is built on top of **KerML** (Kernel Modeling Language): almost every SysML concept (`PartUsage`, `PortUsage`, `AttributeUsage`, `ActionUsage`, `RequirementUsage`, ...) is a specialization of the generic KerML `Feature`/`Usage`/`Type`/`Namespace`/`Element` hierarchy. This is architecturally very different from a purpose-built metamodel like AMALTHEA or ASEM: there are almost no metaclass-specific containment references (e.g. there is no `Block.parts` list). Instead, containment is expressed generically through **`Relationship`** objects (`OwningMembership`, `FeatureMembership`, ...) whose `ownedRelatedElement` holds the actual member, and convenience accessors such as `nestedPart`, `nestedPort`, `ownedMember` are all `derived`/`transient`/`volatile` — they are *computed*, not real EMF slots you can listen to or write into directly.
+SysML is built on top of **KerML** (Kernel Modeling Language): almost every SysML concept (`PartUsage`, `PortUsage`, `AttributeUsage`, `ActionUsage`, `RequirementUsage`, ...) is a specialization of the generic KerML `Feature`/`Usage`/`Type`/`Namespace`/`Element` hierarchy. This is architecturally very different from a purpose-built metamodel like AMALTHEA or ASEM: there are almost no metaclass-specific containment references (e.g. there is no `Block.parts` list). Instead, containment is expressed generically through **`Relationship`** objects (`OwningMembership`, `FeatureMembership`, ...) whose `ownedRelatedElement` holds the actual member, and convenience accessors such as `nestedPart`, `nestedPort`, `ownedMember` are all `derived`/`transient`/`volatile` — they are *computed*, not real EMF slots you can listen to or write into directly.
 
 This has a direct, practical consequence for consistency preservation (see §3.4): a Vitruv reaction cannot listen on `"after element inserted in PartUsage[nestedPart]"` the way the AMALTHEA/ASEM project listened on `"after element inserted in model::System[components]"`, because `nestedPart` is derived. Reactions must instead listen on the real, non-derived features: the `declaredName` attribute (not the derived `name`) and `ownedRelatedElement`/`Feature.direction`.
 
@@ -147,7 +147,7 @@ URI: `http://hu.bme.mit.massif/simulink/1.0` | Source: [viatra/massif](https://g
 
 This Ecore metamodel represents the core structural concepts of MATLAB Simulink models: block diagrams with hierarchical decomposition, typed ports, signal connections, and block parameters. Per its own root-level documentation, it has "a strong focus on the structure and less focus on the behavior, simulation and layout specific details."
 
-Unlike SysML v2, Simulink's containment is almost entirely **direct, non-derived EReferences** — `Block.ports`, `Block.parameters`, `SubSystem.subBlocks` are all plain, settable, `containment=true` features. This makes the Simulink side of the consistency rules structurally much simpler than the SysML side (see §1.1). The one exception, described below, is `SimulinkElement.name` itself.
+Unlike SysML, Simulink's containment is almost entirely **direct, non-derived EReferences** — `Block.ports`, `Block.parameters`, `SubSystem.subBlocks` are all plain, settable, `containment=true` features. This makes the Simulink side of the consistency rules structurally much simpler than the SysML side (see §1.1). The one exception, described below, is `SimulinkElement.name` itself.
 
 ### 2.2 Scope: Classes Relevant to SysML Mapping
 
