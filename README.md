@@ -21,9 +21,9 @@ URI: `https://www.omg.org/spec/SysML/20250201` | Source: [Systems-Modeling/SysML
 
 ### 1.1 Overview
 
-SysML is built on top of **KerML** (Kernel Modeling Language): almost every SysML concept (`PartUsage`, `PortUsage`, `AttributeUsage`, `ActionUsage`, `RequirementUsage`, ...) is a specialization of the generic KerML `Feature`/`Usage`/`Type`/`Namespace`/`Element` hierarchy. This is architecturally very different from a purpose-built metamodel like AMALTHEA or ASEM: there are almost no metaclass-specific containment references (e.g. there is no `Block.parts` list). Instead, containment is expressed generically through **`Relationship`** objects (`OwningMembership`, `FeatureMembership`, ...) whose `ownedRelatedElement` holds the actual member, and convenience accessors such as `nestedPart`, `nestedPort`, `ownedMember` are all `derived`/`transient`/`volatile` — they are *computed*, not real EMF slots you can listen to or write into directly.
+SysML is built on top of **KerML** (Kernel Modeling Language): almost every SysML concept (`PartUsage`, `PortUsage`, `AttributeUsage`, `ActionUsage`, `RequirementUsage`, ...) is a specialization of the generic KerML `Feature`/`Usage`/`Type`/`Namespace`/`Element` hierarchy. This is architecturally very different from a purpose-built, class-specific metamodel: there are almost no metaclass-specific containment references (e.g. there is no `Block.parts` list). Instead, containment is expressed generically through **`Relationship`** objects (`OwningMembership`, `FeatureMembership`, ...) whose `ownedRelatedElement` holds the actual member, and convenience accessors such as `nestedPart`, `nestedPort`, `ownedMember` are all `derived`/`transient`/`volatile` — they are *computed*, not real EMF slots you can listen to or write into directly.
 
-This has a direct, practical consequence for consistency preservation (see §3.4): a Vitruv reaction cannot listen on `"after element inserted in PartUsage[nestedPart]"` the way the AMALTHEA/ASEM project listened on `"after element inserted in model::System[components]"`, because `nestedPart` is derived. Reactions must instead listen on the real, non-derived features: the `declaredName` attribute (not the derived `name`) and `ownedRelatedElement`/`Feature.direction`.
+This has a direct, practical consequence for consistency preservation (see §3.4): a Vitruv reaction cannot listen on `"after element inserted in PartUsage[nestedPart]"` the way it could on a concrete, non-derived containment feature in a purpose-built metamodel, because `nestedPart` is derived. Reactions must instead listen on the real, non-derived features: the `declaredName` attribute (not the derived `name`) and `ownedRelatedElement`/`Feature.direction`.
 
 For the SysML ↔ Simulink case study, the relevant sub-model is the **technical architecture / interface layer**: `PartUsage`/`PartDefinition` (structural blocks), `PortUsage`/`PortDefinition` (interaction points), `FlowUsage`/`FlowDefinition` (signal/item flow), and, for the requirement–function–architecture traceability cascade described in Grycz et al. (KIT/SFB 1608, "Convide" brake-system research platform), `RequirementUsage`/`RequirementDefinition` and `ActionUsage`/`ActionDefinition`.
 
@@ -105,7 +105,7 @@ Simulink's `MultiConnection` (one `OutPort` fanning out to many `InPort`s via ne
 | `declaredName` (inherited) | `EString` | No | Propagated to the corresponding Simulink `Parameter.name`. |
 | `attributeDefinition` | `DataType[*]` | Yes | The `AttributeDefinition`/`DataType` typing this usage; its name is propagated (as a string) to `Parameter.type`. |
 
-Note: an `AttributeUsage`'s *value* is expressed via a nested `FeatureValue`/`LiteralExpression` subtree several relationship-hops away, not a direct attribute. Value propagation is out of scope for this project, mirroring the AMALTHEA/ASEM project's decision not to propagate `Constant`/`Message` values either.
+Note: an `AttributeUsage`'s *value* is expressed via a nested `FeatureValue`/`LiteralExpression` subtree several relationship-hops away, not a direct attribute. Value propagation is out of scope for this project, which only propagates structural/interface-level properties, not literal values.
 
 ### 1.9 ActionUsage / RequirementUsage (traceability cascade classes)
 
@@ -120,7 +120,7 @@ The formal `Satisfy`/`Perform`/`Allocate` relationships that would properly wire
 
 ### 1.10 Package
 
-`Package` (`Namespace`) is the SysML-side VSUM root anchor, analogous to AMALTHEA's `ComponentsModel` or ASEM's `Dummy` root. Top-level `PartUsage`s owned (via the generic `Membership` mechanism) by a `Package` correspond to root-level `Block`s contained directly in a Simulink `SimulinkModel.contains`.
+`Package` (`Namespace`) is the SysML-side VSUM root anchor — the single top-level object every other SysML element is reachable from. Top-level `PartUsage`s owned (via the generic `Membership` mechanism) by a `Package` correspond to root-level `Block`s contained directly in a Simulink `SimulinkModel.contains`.
 
 ### 1.11 Inheritance Summary (Classes Relevant to Mapping)
 
@@ -246,12 +246,12 @@ Location: `Block.parameters[]` / `Port.parameters[]`. Not a map — a block may 
 
 ## 3. Semantic Overlaps and Consistency Preservation Rules
 
-Unlike the AMALTHEA ↔ ASEM case study, there is no published correspondence table (no equivalent of Mazkatli et al. 2016, Table 5.1) for this metamodel pair. The rules below are instead derived directly from the two `.ecore` files, cross-checked class by class, and grounded in the real engineering scenario described in Grycz, Hagel, Eger, Reussner, Düser — *"Model-Based Activities for Supporting the Synthesis of Validation Environments Using the V-SUM Approach"* (KIT/SFB 1608 "Convide", submitted TdSEE Dortmund 2025/2026): a Brake-System-in-the-Loop validation environment in which a brake-disc-temperature sensor was implemented in the physical rig and represented in Simulink, but never propagated back into the descriptive SysML system model maintained in Cameo Systems Modeler.
+There is no published correspondence table for this metamodel pair. The rules below are instead derived directly from the two `.ecore` files, cross-checked class by class, and grounded in the real engineering scenario described in Grycz, Hagel, Eger, Reussner, Düser — *"Model-Based Activities for Supporting the Synthesis of Validation Environments Using the V-SUM Approach"* (KIT/SFB 1608 "Convide", submitted TdSEE Dortmund 2025/2026): a Brake-System-in-the-Loop validation environment in which a brake-disc-temperature sensor was implemented in the physical rig and represented in Simulink, but never propagated back into the descriptive SysML system model maintained in Cameo Systems Modeler.
 
 Three things to read this section with in mind:
 
 - Rules A–C are bidirectional. Rule D (the requirement/function traceability cascade) is **one-directional (Simulink → SysML only)** — Simulink has no Requirement or Function concept to originate the reverse direction from. This mirrors the paper's own demonstrated scenario.
-- Several sub-rules are **intentionally omitted** where the source `.ecore` files don't support a faithful mapping without deeper, out-of-scope modeling. Each omission is documented with its reason, following the same convention as the AMALTHEA ↔ ASEM project's P11/P12 notes.
+- Several sub-rules are **intentionally omitted** where the source `.ecore` files don't support a faithful mapping without deeper, out-of-scope modeling. Each omission is documented with its reason rather than left as a silent gap.
 - Open questions equivalent to "confirm with Benedikt" are marked as *(needs domain-owner confirmation)*.
 
 ### 3.1 Semantic Overlap Summary
@@ -289,7 +289,7 @@ Context sysml::PartUsage
        corresponding(simulink::Block) and not corresponding(simulink::SubSystem)
 ```
 
-Just as AMALTHEA `Label.constant` flipping forced an ASEM `Message`↔`Constant` swap (Rule 5/6, P8/P9 in the ASEM-Amalthea project), a `PartUsage` gaining its first nested part — or losing its last one — forces a `Block`↔`SubSystem` swap on the Simulink side, since `SubSystem` is a distinct EClass, not a flag on `Block`.
+A `PartUsage` gaining its first nested part — or losing its last one — forces a `Block`↔`SubSystem` swap on the Simulink side, since `SubSystem` is a distinct EClass, not a flag on `Block`.
 
 #### Rule B — PortUsage ↔ InPort / OutPort
 
@@ -322,7 +322,7 @@ Context sysml::PortUsage
 | `FlowUsage.flowEnd[1]` (end typed by the `out` `PortUsage`) | `SingleConnection.from` (via the corresponding `OutPort`) |
 | `FlowUsage.flowEnd[2]` (end typed by the `in` `PortUsage`) | `SingleConnection.to` (via the corresponding `InPort`) |
 
-**Note** — Simulink's `MultiConnection` (one `OutPort` fanning out to several `InPort`s via nested `SingleConnection`s) has no single-`FlowUsage` equivalent in this rule. A faithful mapping would require either (a) several `FlowUsage`s sharing the same source `flowEnd`, or (b) a dedicated multi-ended `FlowUsage`. Neither is implemented — **omitted**, analogous to the ASEM-Amalthea project's P11/P12 notes.
+**Note** — Simulink's `MultiConnection` (one `OutPort` fanning out to several `InPort`s via nested `SingleConnection`s) has no single-`FlowUsage` equivalent in this rule. A faithful mapping would require either (a) several `FlowUsage`s sharing the same source `flowEnd`, or (b) a dedicated multi-ended `FlowUsage`. Neither is implemented — **omitted**, and flagged here rather than left as a silent gap.
 
 #### Rule D — Traceability cascade: Block/SubSystem → PartUsage + ActionUsage + RequirementUsage
 
@@ -336,7 +336,7 @@ This rule is not a metaclass-to-metaclass correspondence like A–C; it reproduc
 | — | `ActionUsage.declaredName` = `"process" + X` |
 | — | `RequirementUsage.declaredName` = `X + "Requirement"` |
 
-**Omission, honestly flagged (same spirit as the ASEM-Amalthea project's P11/P12 notes):** the cascade creates three *sibling* elements with consistent names, but does **not** create the formal `SatisfyRequirementUsage` / `PerformActionUsage` / `AllocationUsage` relationship objects that would properly wire Requirement → Function → Architecture together in SysML's traceability model. Grycz et al. flag exactly this same gap themselves (§5.2, discussing Figure 6): *"a further refining and detailing could be accomplished ... additional relationships such as «satisfy», «allocate», and trace links between requirements, functions, and technical architecture elements can be established"* — i.e. the paper's own case study also stops at generating the three elements and leaves the relationship wiring as manual/future work. This project does the same, deliberately, rather than inventing an under-specified auto-wiring policy.
+**Omission, honestly flagged:** the cascade creates three *sibling* elements with consistent names, but does **not** create the formal `SatisfyRequirementUsage` / `PerformActionUsage` / `AllocationUsage` relationship objects that would properly wire Requirement → Function → Architecture together in SysML's traceability model. Grycz et al. flag exactly this same gap themselves (§5.2, discussing Figure 6): *"a further refining and detailing could be accomplished ... additional relationships such as «satisfy», «allocate», and trace links between requirements, functions, and technical architecture elements can be established"* — i.e. the paper's own case study also stops at generating the three elements and leaves the relationship wiring as manual/future work. This project does the same, deliberately, rather than inventing an under-specified auto-wiring policy.
 
 ### 3.3 OCL Invariant Summary
 
@@ -445,7 +445,7 @@ If a specific module needs to be built in isolation (e.g. while iterating on the
 > If the build fails on a fresh clone with an MWE2 URI resolver error, make sure the `.genmodel`/`.ecore` files have been generated first (`./mvnw clean install` on the `model` module before running `verify` on the full reactor).
 
 > [!NOTE]
-> Unlike the ASEM-Amalthea case study (where ASEM was clean enough to generate locally and only AMALTHEA needed an external artifact), **both** `SysML.ecore` and `simulink.ecore` declare custom delegate factories for their derived features (see the NOTE in `model/pom.xml`). This project's reactions/tests deliberately avoid touching any derived feature, so this doesn't block building or running — it only means derived-feature *values* (e.g. `PartUsage.nestedPart` read directly rather than through a test helper) would be unset at runtime without the upstream projects' own delegate runtimes on the classpath.
+> **Both** `SysML.ecore` and `simulink.ecore` declare custom delegate factories for their derived features (see the NOTE in `model/pom.xml`). This project's reactions/tests deliberately avoid touching any derived feature, so this doesn't block building or running — it only means derived-feature *values* (e.g. `PartUsage.nestedPart` read directly rather than through a test helper) would be unset at runtime without the upstream projects' own delegate runtimes on the classpath.
 
 ### 4.1 Running Interactively (Real User Input)
 
