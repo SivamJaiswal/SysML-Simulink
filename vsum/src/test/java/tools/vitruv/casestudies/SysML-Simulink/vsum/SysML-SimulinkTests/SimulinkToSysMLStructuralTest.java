@@ -35,10 +35,7 @@ public class SimulinkToSysMLStructuralTest {
         InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
         util.registerRootObjects(vsum, tempDir);
 
-        // Housing and Bracket start as two INDEPENDENT root blocks, each getting its
-        // own root-level PartUsage via E3 — this deliberately does NOT go through
-        // E3's own parent-lookup path, so the re-parenting below genuinely exercises
-        // S3's separate BlockReparented reaction rather than E3 alone.
+        // Housing and Bracket start as two independent root blocks, so re-parenting below exercises S3, not E3's own parent-lookup path.
         util.addBlock(vsum, tempDir, "Housing", true);
         util.addBlock(vsum, tempDir, "Bracket");
         assertNull(util.getCorrespondingInSysml(vsum, "Bracket", PartUsage.class).getOwningRelationship(),
@@ -48,10 +45,7 @@ public class SimulinkToSysMLStructuralTest {
 
         PartUsage bracket = util.getCorrespondingInSysml(vsum, "Bracket", PartUsage.class);
         assertNotNull(bracket.getOwningRelationship(), "Bracket's PartUsage must now have an owning relationship");
-        // Compare by name, not by reference: getCorrespondingInSysml builds a fresh
-        // view per call (see VSUMRunner's header comment on that method), so an
-        // independently-queried "housing" PartUsage is not guaranteed to be the same
-        // Java object as the one reached by navigating from bracket in this view.
+        // compare by name, not reference — getCorrespondingInSysml builds a fresh view per call.
         assertEquals("Housing", ((org.omg.sysml.lang.sysml.Element) bracket.getOwningRelationship().getOwningRelatedElement()).getDeclaredName(),
                 "Bracket's PartUsage must be nested under Housing's PartUsage, mirroring the Simulink subBlocks move");
     }

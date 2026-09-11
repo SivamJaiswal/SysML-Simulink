@@ -29,9 +29,7 @@ public class VSUMSampleDataGenerator {
     Path storageFolder = Path.of("vsum/sample-data").toAbsolutePath();
     VirtualModel vsum = createDefaultVirtualModel(storageFolder);
 
-    // Only the SysML-side root (a Package) is registered up front, mirroring
-    // ASEM-Amalthea's VSUMSampleDataGenerator registering only the AMALTHEA root —
-    // VSUMExample.main() then adds the Simulink Block that triggers the cascade.
+    // only the SysML-side root is registered up front; VSUMExample.main() adds the Simulink Block that triggers the cascade.
     modifyView(
         getDefaultView(vsum).withChangeRecordingTrait(),
         (CommittableView v) -> {
