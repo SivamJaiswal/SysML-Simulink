@@ -22,17 +22,23 @@ execute actions in simulink
 // affectedEObject.owningRelationship.owningRelatedElement, which are the two REAL
 // (non-derived) ends of the generic KerML containment mechanism.
 
-// E1 — childless PartUsage created -> create a Block with the same name
+// E1 — PartUsage created -> create a Block with the same name.
+//
+// Every PartUsage is created childless first (you cannot attach a nestedPart to an
+// object that does not exist yet), so this reaction always creates a plain Block —
+// never a SubSystem directly. If the new PartUsage is itself being attached under a
+// parent PartUsage, attachChildBlock (S1, below) upgrades the PARENT's Block into a
+// SubSystem at that point, if this is the parent's first child.
 reaction PartUsageCreated {
 	after element sysml::PartUsage created
-		with affectedEObject.nestedPart.empty
 	call createBlockForPartUsage(affectedEObject)
 }
 
 routine createBlockForPartUsage(sysml::PartUsage part) {
 	match {
 		require absence of simulink::Block corresponding to part
-		val parentBlock = retrieve simulink::Block corresponding to part.owningRelationship.owningRelatedElement
+		val parentElement = part.owningRelationship.owningRelatedElement
+		val parentBlock = retrieve simulink::Block corresponding to parentElement
 	}
 	create {
 		val block = new simulink::Block
@@ -42,9 +48,7 @@ routine createBlockForPartUsage(sysml::PartUsage part) {
 		ref.name = part.declaredName
 		block.simulinkRef = ref
 		if (parentBlock !== null) {
-			// parentBlock must already be a SubSystem — see S1 in SimulinkToSysML.reactions
-			// and the routine convertBlockToSubSystem for how that invariant is maintained.
-			(parentBlock as simulink::SubSystem).subBlocks += block
+			attachChildBlock(parentElement, parentBlock, part, block)
 		} else {
 			persistProjectRelative(part, block, new File("").toString() + "simulink/" + part.declaredName + ".simulink")
 		}
@@ -52,7 +56,44 @@ routine createBlockForPartUsage(sysml::PartUsage part) {
 	}
 }
 
-// E2 — PartUsage deleted -> delete corresponding Block or SubSystem
+// S1 — attach a new child Block to its parent's Block, converting the parent from a
+// plain Block into a SubSystem first if this is the parent's first child. This is
+// the structural counterpart of the reference project's Label.constant flip
+// (P8/P9): a condition (child count crossing zero) forces a swap between two
+// distinct EClasses, since SubSystem is not a flag on Block but its own EClass.
+routine attachChildBlock(sysml::Element parentPart, simulink::Block parentBlock, sysml::PartUsage childPart, simulink::Block child) {
+	update {
+		if (parentBlock instanceof simulink::SubSystem) {
+			(parentBlock as simulink::SubSystem).subBlocks += child
+		} else {
+			val subSystem = new simulink::SubSystem
+			subSystem.simulinkRef = parentBlock.simulinkRef
+			// move any pre-existing ports/parameters across before subBlocks is set,
+			// so a part that already had interface ports before gaining its first
+			// child keeps them.
+			val movedPorts = newArrayList
+			movedPorts.addAll(parentBlock.ports)
+			subSystem.ports += movedPorts
+			val movedParams = newArrayList
+			movedParams.addAll(parentBlock.parameters)
+			subSystem.parameters += movedParams
+			subSystem.subBlocks += child
+			// re-splice into whatever previously contained parentBlock (another
+			// SubSystem's subBlocks, or a root SimulinkModel.contains)
+			if (parentBlock.parent !== null) {
+				val grandParent = parentBlock.parent
+				grandParent.subBlocks -= parentBlock
+				grandParent.subBlocks += subSystem
+			}
+			removeCorrespondenceBetween(parentPart, parentBlock)
+			removeObject(parentBlock)
+			addCorrespondenceBetween(parentPart, subSystem)
+		}
+	}
+}
+
+// E2 — PartUsage deleted -> delete corresponding Block or SubSystem, then check
+// whether this was the parent's LAST child (S2).
 reaction PartUsageDeleted {
 	after element sysml::PartUsage deleted
 	call deleteBlockForPartUsage(affectedEObject)
@@ -61,10 +102,47 @@ reaction PartUsageDeleted {
 routine deleteBlockForPartUsage(sysml::PartUsage part) {
 	match {
 		val block = retrieve simulink::Block corresponding to part
+		// NOTE: navigating affectedEObject.owningRelationship after a "deleted" event
+		// carries the same ordering risk the reference project flagged for P11 — the
+		// relationship may already be unlinked by the time this routine runs,
+		// depending on exactly when Vitruv fires ElementDeleted relative to EMF's own
+		// containment cleanup. Treat parentElement as best-effort, not guaranteed.
+		val parentElement = part.owningRelationship?.owningRelatedElement
 	}
 	update {
 		removeObject(block)
 		removeCorrespondenceBetween(part, block)
+		if (parentElement !== null) {
+			downgradeIfChildless(parentElement)
+		}
+	}
+}
+
+// S2 — the parent's corresponding element must revert from SubSystem to a plain
+// Block once its last child is removed, mirroring S1's up-conversion.
+routine downgradeIfChildless(sysml::Element parentPart) {
+	match {
+		val parentSubSystem = retrieve simulink::SubSystem corresponding to parentPart
+	}
+	update {
+		if (parentSubSystem !== null && parentSubSystem.subBlocks.empty) {
+			val plainBlock = new simulink::Block
+			plainBlock.simulinkRef = parentSubSystem.simulinkRef
+			val movedPorts = newArrayList
+			movedPorts.addAll(parentSubSystem.ports)
+			plainBlock.ports += movedPorts
+			val movedParams = newArrayList
+			movedParams.addAll(parentSubSystem.parameters)
+			plainBlock.parameters += movedParams
+			if (parentSubSystem.parent !== null) {
+				val grandParent = parentSubSystem.parent
+				grandParent.subBlocks -= parentSubSystem
+				grandParent.subBlocks += plainBlock
+			}
+			removeCorrespondenceBetween(parentPart, parentSubSystem)
+			removeObject(parentSubSystem)
+			addCorrespondenceBetween(parentPart, plainBlock)
+		}
 	}
 }
 
@@ -80,29 +158,6 @@ routine syncPartUsageNameToBlock(sysml::PartUsage part) {
 	}
 	update {
 		block.simulinkRef.name = part.declaredName
-	}
-}
-
-// S1 — PartUsage gains its first nestedPart (was childless) -> Block must become a SubSystem
-// S2 — PartUsage loses its last nestedPart -> SubSystem must become a plain Block
-//
-// Both are folded into the SAME reaction: any insertion or removal that changes
-// nestedPart.empty is observed indirectly via ElementCreated/Deleted of the child
-// PartUsage itself (see createBlockForPartUsage above, which checks the PARENT's
-// child count at the moment a new child part is created). The explicit swap routine
-// below is invoked from there rather than triggered by its own reaction, because
-// "nestedPart" cannot itself be listened on (see the containment note at the top of
-// this file).
-routine convertBlockToSubSystem(simulink::Block block) {
-	match {
-		require absence of simulink::SubSystem corresponding to null
-	}
-	update {
-		// Left as a documented extension point: swapping an existing Block for a
-		// SubSystem in-place requires re-parenting all of its existing ports and
-		// parameters onto the new object and re-registering every correspondence
-		// that pointed at the old Block. Same category of gap as the reference
-		// project's P11 (BaseTypeDefinition.size changed) — flagged, not implemented.
 	}
 }
 
