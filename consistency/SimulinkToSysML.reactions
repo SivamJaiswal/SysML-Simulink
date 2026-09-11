@@ -1,0 +1,292 @@
+
+import java.io.File;
+
+import "https://www.omg.org/spec/SysML/20250201" as sysml
+import "http://hu.bme.mit.massif/simulink/1.0" as simulink
+
+reactions: simulinkToSysml
+in reaction to changes in simulink
+execute actions in sysml
+
+// ============================================================================
+// Shared helper — constructing real KerML containment
+// ============================================================================
+//
+// On the SysML side there is no direct "parent.nestedPart.add(child)" the way
+// AMALTHEA's Component.runnables worked. A new member must be attached via a real
+// FeatureMembership relationship: the parent owns the FeatureMembership
+// (Element.ownedRelationship, real containment), and the FeatureMembership owns the
+// new element (Relationship.ownedRelatedElement, real containment). This routine
+// centralizes that two-hop construction so every E-rule below can stay short.
+routine attachAsMember(sysml::Element parent, sysml::Element member) {
+	create {
+		val membership = new sysml::FeatureMembership
+	}
+	update {
+		parent.ownedRelationship += membership
+		membership.ownedRelatedElement += member
+	}
+}
+
+// ============================================================================
+// Rule A  —  Block <-> PartUsage / SubSystem <-> PartUsage
+// ============================================================================
+
+// E3 — Block or SubSystem created (with no corresponding PartUsage) -> create a
+// PartUsage AND trigger Rule D's cascade (ActionUsage "function" + RequirementUsage
+// "requirement"). This reproduces the exact scenario from Grycz et al. §3.3-4.2: a
+// Simulink block appearing without a matching SysML architecture element pulls a
+// requirement and a function into existence alongside the architecture element, all
+// three named consistently.
+reaction BlockCreated {
+	after element simulink::Block created
+	call createPartUsageForBlock(affectedEObject)
+}
+
+routine createPartUsageForBlock(simulink::Block block) {
+	match {
+		require absence of sysml::PartUsage corresponding to block
+		// Block.parent is a real, non-derived eOpposite of SubSystem.subBlocks — unlike
+		// the SysML side, no indirection workaround is needed here.
+		val parentPart = retrieve sysml::PartUsage corresponding to block.parent
+	}
+	create {
+		val part = new sysml::PartUsage
+	}
+	update {
+		part.declaredName = block.simulinkRef.name
+		if (parentPart !== null) {
+			attachAsMember(parentPart, part)
+		} else {
+			persistProjectRelative(block, part, new File("").toString() + "sysml/" + block.simulinkRef.name + ".sysml")
+		}
+		addCorrespondenceBetween(block, part)
+		// Rule D cascade — see createFunctionAndRequirementForPartUsage below.
+		createFunctionAndRequirementForPartUsage(part)
+	}
+}
+
+// Rule D — cascade: sibling ActionUsage ("function") + RequirementUsage
+// ("requirement"), named consistently with the PartUsage that triggered them.
+// Deliberately does NOT create SatisfyRequirementUsage / PerformActionUsage /
+// AllocationUsage relationship objects to formally wire the three together — see
+// the omission note under Rule D in the consistency doc, which mirrors the paper's
+// own documented gap (§5.2, Figure 6 discussion).
+routine createFunctionAndRequirementForPartUsage(sysml::PartUsage part) {
+	match {
+		require absence of sysml::ActionUsage corresponding to part
+		require absence of sysml::RequirementUsage corresponding to part
+		val owner = part.owningRelationship.owningRelatedElement
+	}
+	create {
+		val function = new sysml::ActionUsage
+		val requirement = new sysml::RequirementUsage
+	}
+	update {
+		function.declaredName = "process" + part.declaredName
+		requirement.declaredName = part.declaredName + "Requirement"
+		attachAsMember(owner, function)
+		attachAsMember(owner, requirement)
+		addCorrespondenceBetween(part, function)
+		addCorrespondenceBetween(part, requirement)
+	}
+}
+
+// E4 — Block or SubSystem deleted -> delete corresponding PartUsage and its Rule D
+// cascade siblings, if any
+reaction BlockDeleted {
+	after element simulink::Block deleted
+	call deletePartUsageForBlock(affectedEObject)
+}
+
+routine deletePartUsageForBlock(simulink::Block block) {
+	match {
+		val part = retrieve sysml::PartUsage corresponding to block
+		val function = retrieve sysml::ActionUsage corresponding to part
+		val requirement = retrieve sysml::RequirementUsage corresponding to part
+	}
+	update {
+		if (function !== null) {
+			removeObject(function)
+			removeCorrespondenceBetween(part, function)
+		}
+		if (requirement !== null) {
+			removeObject(requirement)
+			removeCorrespondenceBetween(part, requirement)
+		}
+		removeObject(part)
+		removeCorrespondenceBetween(block, part)
+	}
+}
+
+// P2 — Block.simulinkRef.name changed -> update PartUsage.declaredName (and cascade
+// the rename to the Rule D siblings, if present — see P5 in the consistency doc)
+reaction BlockRenamed {
+	after attribute replaced at simulink::IdentifierReference[name]
+		with affectedEObject.element.oclIsKindOf(simulink::Block)
+	call syncBlockNameToPartUsage(affectedEObject)
+}
+
+routine syncBlockNameToPartUsage(simulink::IdentifierReference ref) {
+	match {
+		val part = retrieve sysml::PartUsage corresponding to (ref.element as simulink::Block)
+		val function = retrieve sysml::ActionUsage corresponding to part
+		val requirement = retrieve sysml::RequirementUsage corresponding to part
+	}
+	update {
+		part.declaredName = ref.name
+		if (function !== null) {
+			function.declaredName = "process" + ref.name
+		}
+		if (requirement !== null) {
+			requirement.declaredName = ref.name + "Requirement"
+		}
+	}
+}
+
+// S3 — Block moved into a SubSystem.subBlocks (gains a parent) -> re-parent the
+// corresponding PartUsage under the corresponding parent PartUsage
+reaction BlockReparented {
+	after attribute replaced at simulink::Block[parent]
+	call reparentPartUsage(affectedEObject)
+}
+
+routine reparentPartUsage(simulink::Block block) {
+	match {
+		val part = retrieve sysml::PartUsage corresponding to block
+		val newParentPart = retrieve sysml::PartUsage corresponding to block.parent
+	}
+	update {
+		if (newParentPart !== null) {
+			attachAsMember(newParentPart, part)
+		}
+	}
+}
+
+// ============================================================================
+// Rule B  —  InPort / OutPort <-> PortUsage
+// ============================================================================
+
+// E8 — InPort created -> create a PortUsage with direction = in
+reaction InPortCreated {
+	after element simulink::InPort created
+	call createPortUsageForInPort(affectedEObject)
+}
+
+routine createPortUsageForInPort(simulink::InPort inPort) {
+	match {
+		require absence of sysml::PortUsage corresponding to inPort
+		val part = retrieve sysml::PartUsage corresponding to inPort.container
+	}
+	create {
+		val port = new sysml::PortUsage
+	}
+	update {
+		port.declaredName = inPort.simulinkRef.name
+		port.direction = sysml::FeatureDirectionKind.IN
+		attachAsMember(part, port)
+		addCorrespondenceBetween(inPort, port)
+	}
+}
+
+// E9 — OutPort created -> create a PortUsage with direction = out
+reaction OutPortCreated {
+	after element simulink::OutPort created
+	call createPortUsageForOutPort(affectedEObject)
+}
+
+routine createPortUsageForOutPort(simulink::OutPort outPort) {
+	match {
+		require absence of sysml::PortUsage corresponding to outPort
+		val part = retrieve sysml::PartUsage corresponding to outPort.container
+	}
+	create {
+		val port = new sysml::PortUsage
+	}
+	update {
+		port.declaredName = outPort.simulinkRef.name
+		port.direction = sysml::FeatureDirectionKind.OUT
+		attachAsMember(part, port)
+		addCorrespondenceBetween(outPort, port)
+	}
+}
+
+// NOTE: Trigger, Enable, and State (subtypes of InPort/OutPort) intentionally have
+// no reaction here — no SysML counterpart, see Rule B note in the consistency doc.
+
+// E10 — InPort or OutPort deleted -> delete corresponding PortUsage
+reaction PortDeleted {
+	after element simulink::Port deleted
+	call deletePortUsageForPort(affectedEObject)
+}
+
+routine deletePortUsageForPort(simulink::Port port) {
+	match {
+		val portUsage = retrieve sysml::PortUsage corresponding to port
+	}
+	update {
+		removeObject(portUsage)
+		removeCorrespondenceBetween(port, portUsage)
+	}
+}
+
+// P4 — Port's simulinkRef.name changed -> update PortUsage.declaredName
+reaction PortRenamed {
+	after attribute replaced at simulink::IdentifierReference[name]
+		with affectedEObject.element.oclIsKindOf(simulink::Port)
+	call syncPortNameToPortUsage(affectedEObject)
+}
+
+routine syncPortNameToPortUsage(simulink::IdentifierReference ref) {
+	match {
+		val portUsage = retrieve sysml::PortUsage corresponding to (ref.element as simulink::Port)
+	}
+	update {
+		portUsage.declaredName = ref.name
+	}
+}
+
+// ============================================================================
+// Rule C  —  SingleConnection <-> FlowUsage
+// ============================================================================
+
+// E13 — SingleConnection created -> create a FlowUsage between the corresponding
+// PortUsages
+reaction SingleConnectionCreated {
+	after element simulink::SingleConnection created
+	call createFlowUsageForConnection(affectedEObject)
+}
+
+routine createFlowUsageForConnection(simulink::SingleConnection connection) {
+	match {
+		require absence of sysml::FlowUsage corresponding to connection
+		val outPortUsage = retrieve sysml::PortUsage corresponding to connection.from
+		val inPortUsage = retrieve sysml::PortUsage corresponding to connection.to
+	}
+	create {
+		val flow = new sysml::FlowUsage
+	}
+	update {
+		flow.flowEnd += outPortUsage
+		flow.flowEnd += inPortUsage
+		addCorrespondenceBetween(connection, flow)
+	}
+}
+
+// E14 — SingleConnection deleted -> delete corresponding FlowUsage
+reaction SingleConnectionDeleted {
+	after element simulink::SingleConnection deleted
+	call deleteFlowUsageForConnection(affectedEObject)
+}
+
+routine deleteFlowUsageForConnection(simulink::SingleConnection connection) {
+	match {
+		val flow = retrieve sysml::FlowUsage corresponding to connection
+	}
+	update {
+		removeObject(flow)
+		removeCorrespondenceBetween(connection, flow)
+	}
+}
+
+// NOTE: MultiConnection has no FlowUsage equivalent here — see consistency doc, Rule C.
