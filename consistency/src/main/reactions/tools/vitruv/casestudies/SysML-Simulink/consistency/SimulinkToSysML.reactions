@@ -5,7 +5,7 @@ import "http://hu.bme.mit.massif/simulink/1.0" as simulink
 
 // Change propagation: Simulink --> SysML
 // Existence rules  : E3, E4, E8, E9, E10, E13, E14
-// Property rules   : P2, P4, P5 (Rule D cascade rename)
+// Property rules   : P2, P4, P5
 // Structural rules : S3 (Block re-parented -> PartUsage re-parented)
 // Rule D           : requirement/function traceability cascade, Simulink -> SysML only.
 // See README.md §3.4 for the full rule table this maps onto.
@@ -81,7 +81,7 @@ routine persistAsRootIfNoParentPart(simulink::Block block, sysml::PartUsage part
 	}
 }
 
-// Rule D — cascade: sibling ActionUsage ("function") + RequirementUsage ("requirement"); deliberately no Satisfy/Perform/Allocate wiring (see README §3.4 Rule D).
+// Rule D — cascade: sibling ActionUsage ("function") + RequirementUsage ("requirement"); deliberately no Satisfy/Perform/Allocate wiring.
 routine createFunctionAndRequirementForPartUsage(sysml::PartUsage part) {
 	match {
 		require absence of sysml::ActionUsage corresponding to part
@@ -134,7 +134,7 @@ routine deletePartUsageForBlock(simulink::Block block) {
 	}
 }
 
-// P2 — Block.simulinkRef.name changed -> update PartUsage.declaredName (and cascade to Rule D siblings, P5).
+// P2 — Block.simulinkRef.name changed -> update PartUsage.declaredName, cascading the rename to the Rule D siblings too.
 reaction BlockRenamed {
 	after attribute replaced at simulink::IdentifierReference[name]
 		// IdentifierReference.element has no eOpposite, so it's unreliable — eContainer() is EMF's built-in and always correct here.

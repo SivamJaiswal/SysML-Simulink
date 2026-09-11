@@ -297,7 +297,7 @@ reaction FlowUsageCreated {
 routine createConnectionForFlowUsage(sysml::FlowUsage flow) {
 	match {
 		require absence of simulink::SingleConnection corresponding to flow
-		// source is the `out` PortUsage, target the `in` PortUsage (Rule C).
+		// source is the `out` PortUsage, target the `in` PortUsage.
 		val outPort = retrieve simulink::OutPort corresponding to flow.source.get(0)
 		val inPort = retrieve simulink::InPort corresponding to flow.target.get(0)
 	}
