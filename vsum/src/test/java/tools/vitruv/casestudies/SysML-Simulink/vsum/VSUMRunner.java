@@ -132,7 +132,7 @@ public class VSUMRunner {
 		});
 	}
 
-	// mirrors SimulinkToSysML.reactions' attachAsMember — SysML has no direct "parent.getNestedPart().add(child)".
+	// mirrors SimulinkToSysML.reactions' attachAsMember — SysML has no direct parent.getNestedPart().add(child).
 	private void attach(org.omg.sysml.lang.sysml.Element parent, org.omg.sysml.lang.sysml.Element member) {
 		FeatureMembership membership = SysMLFactory.eINSTANCE.createFeatureMembership();
 		parent.getOwnedRelationship().add(membership);
@@ -236,7 +236,7 @@ public class VSUMRunner {
 
 	// simulinkRef.name, not SimulinkElement.name — the latter is derived.
 	private void setSimulinkName(hu.bme.mit.massif.simulink.SimulinkElement element, String name) {
-		// must mutate the existing IdentifierReference in place, or the P2/P4 rename reactions never see an "attribute replaced" event.
+		// must mutate the existing IdentifierReference in place, or the P2/P4 rename reactions never see an attribute-replaced event.
 		IdentifierReference ref = element.getSimulinkRef();
 		if (ref == null) {
 			ref = SimulinkFactory.eINSTANCE.createIdentifierReference();

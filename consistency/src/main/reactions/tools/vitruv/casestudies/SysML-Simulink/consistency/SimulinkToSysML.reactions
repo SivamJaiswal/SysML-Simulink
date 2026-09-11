@@ -15,7 +15,7 @@ reactions: simulinkToSysml
 in reaction to changes in simulink
 execute actions in sysml
 
-// Shared helper — SysML has no "parent.nestedPart.add(child)"; members are attached via a FeatureMembership relationship.
+// Shared helper — SysML has no direct parent.nestedPart.add(child); members are attached via a FeatureMembership relationship.
 routine attachAsMember(sysml::Element parent, sysml::Element member) {
 	create {
 		val membership = new sysml::FeatureMembership
@@ -44,7 +44,7 @@ reaction BlockInsertedAsRoot {
 	call createPartUsageForBlock(newValue)
 }
 
-// "retrieve ... corresponding to" gates the whole match — split into two complementarily-gated routines instead of if/else.
+// retrieve corresponding to gates the whole match — split into two complementarily-gated routines instead of if/else.
 routine createPartUsageForBlock(simulink::Block block) {
 	match {
 		require absence of sysml::PartUsage corresponding to block
@@ -81,7 +81,7 @@ routine persistAsRootIfNoParentPart(simulink::Block block, sysml::PartUsage part
 	}
 }
 
-// Rule D — cascade: sibling ActionUsage ("function") + RequirementUsage ("requirement"); deliberately no Satisfy/Perform/Allocate wiring.
+// Rule D — cascade: sibling ActionUsage (function) + RequirementUsage (requirement); deliberately no Satisfy/Perform/Allocate wiring.
 routine createFunctionAndRequirementForPartUsage(sysml::PartUsage part) {
 	match {
 		require absence of sysml::ActionUsage corresponding to part

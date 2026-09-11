@@ -123,7 +123,7 @@ public class SimulinkToSysMLExistenceTest {
         util.registerRootObjects(vsum, tempDir);
 
         util.addBlock(vsum, tempDir, "ConditionalSubsystem");
-        // no reaction listens for Trigger/Enable/State at all — nothing to assert beyond "no PortUsage appears".
+        // no reaction listens for Trigger/Enable/State at all — nothing to assert beyond confirming no PortUsage appears.
         assertNull(util.getCorrespondingInSysml(vsum, "trigger", PortUsage.class));
     }
 

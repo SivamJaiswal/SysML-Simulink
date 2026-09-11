@@ -24,7 +24,7 @@ reaction PartUsageCreated {
 	call createBlockForPartUsage(affectedEObject)
 }
 
-// "retrieve ... corresponding to" is a gate, not a nullable lookup — split into two routines (retrieve vs. require absence) instead of if/else.
+// retrieve corresponding to is a gate, not a nullable lookup — split into two routines (retrieve vs. require absence) instead of if/else.
 routine createBlockForPartUsage(sysml::PartUsage part) {
 	match {
 		require absence of simulink::Block corresponding to part
@@ -65,7 +65,7 @@ routine persistAsRootIfNoParentBlock(sysml::PartUsage part, simulink::Block bloc
 
 // S1 — first child forces a Block -> SubSystem swap, since SubSystem is a distinct EClass, not a flag on Block.
 routine attachChildBlock(sysml::Element parentPart, simulink::Block parentBlock, sysml::PartUsage childPart, simulink::Block child) {
-	// subSystem is always pre-created here — "new" only parses inside create blocks — even though only the non-SubSystem branch below uses it.
+	// subSystem is always pre-created here — new only parses inside create blocks — even though only the non-SubSystem branch below uses it.
 	create {
 		val subSystem = new simulink::SubSystem
 	}
@@ -89,7 +89,7 @@ routine attachChildBlock(sysml::Element parentPart, simulink::Block parentBlock,
 				grandParent.subBlocks -= parentBlock
 				grandParent.subBlocks += subSystem
 			} else {
-				// parentBlock had no parent (was itself a resource root) -> persist subSystem as a new root; the "_subsystem" suffix avoids colliding with parentBlock's own file path.
+				// parentBlock had no parent (was itself a resource root) -> persist subSystem as a new root; the _subsystem suffix avoids colliding with parentBlock's own file path.
 				persistProjectRelative(parentPart, subSystem, new File("").toString() + "simulink/" + subSystem.simulinkRef.name + "_subsystem.simulink")
 			}
 			removeCorrespondenceBetween(parentPart, parentBlock)
@@ -305,7 +305,7 @@ routine createConnectionForFlowUsage(sysml::FlowUsage flow) {
 		val connection = new simulink::SingleConnection
 	}
 	update {
-		// "connection.from = outPort" assignment sugar doesn't parse here — use explicit setters.
+		// connection.from = outPort assignment sugar doesn't parse here — use explicit setters.
 		connection.setFrom(outPort)
 		connection.setTo(inPort)
 		addCorrespondenceBetween(flow, connection)
