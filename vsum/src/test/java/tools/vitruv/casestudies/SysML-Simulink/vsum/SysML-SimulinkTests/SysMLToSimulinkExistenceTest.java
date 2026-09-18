@@ -16,6 +16,7 @@ import hu.bme.mit.massif.simulink.SubSystem;
 import hu.bme.mit.massif.simulink.InPort;
 import hu.bme.mit.massif.simulink.OutPort;
 import hu.bme.mit.massif.simulink.SingleConnection;
+import hu.bme.mit.massif.simulink.Parameter;
 
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.xmi.impl.XMIResourceFactoryImpl;
@@ -96,17 +97,64 @@ public class SysMLToSimulinkExistenceTest {
         assertNotNull(port, "OutPort must be created for direction=out PortUsage");
     }
 
+    // Rule B note — PortUsage(direction=inout) has no deterministic Simulink target, so it's resolved
+    // interactively (resolveInoutPortUsage). These tests script the answer via TestUserInteraction so
+    // mvn clean verify stays fully automated — see VSUMRunner.getUserInteraction().
+
     @Test
-    @DisplayName("Rule B note – PortUsage(direction=inout) has no Simulink counterpart")
-    void ruleBNote_inoutPortUsage_notPropagated(@TempDir Path tempDir) throws Exception {
+    @DisplayName("Rule B note – inout PortUsage, user picks \"Map as InPort\" → InPort created")
+    void ruleBNote_inoutPortUsage_choiceInPort(@TempDir Path tempDir) throws Exception {
         InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
         util.registerRootObjects(vsum, tempDir);
+        util.addPartUsage(vsum, "Transceiver1");
 
-        util.addPartUsage(vsum, "Transceiver");
-        util.addPortUsage(vsum, "Transceiver", "bus", FeatureDirectionKind.INOUT);
+        util.getUserInteraction().addNextSingleSelection(0);
+        util.addPortUsage(vsum, "Transceiver1", "bus1", FeatureDirectionKind.INOUT);
 
-        assertNull(util.getCorrespondingInSimulink(vsum, "bus", InPort.class));
-        assertNull(util.getCorrespondingInSimulink(vsum, "bus", OutPort.class));
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus1", InPort.class));
+        assertNull(util.getCorrespondingInSimulink(vsum, "bus1", OutPort.class));
+    }
+
+    @Test
+    @DisplayName("Rule B note – inout PortUsage, user picks \"Map as OutPort\" → OutPort created")
+    void ruleBNote_inoutPortUsage_choiceOutPort(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+        util.addPartUsage(vsum, "Transceiver2");
+
+        util.getUserInteraction().addNextSingleSelection(1);
+        util.addPortUsage(vsum, "Transceiver2", "bus2", FeatureDirectionKind.INOUT);
+
+        assertNull(util.getCorrespondingInSimulink(vsum, "bus2", InPort.class));
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus2", OutPort.class));
+    }
+
+    @Test
+    @DisplayName("Rule B note – inout PortUsage, user picks \"Create paired InPort + OutPort\" → both created")
+    void ruleBNote_inoutPortUsage_choiceBoth(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+        util.addPartUsage(vsum, "Transceiver3");
+
+        util.getUserInteraction().addNextSingleSelection(2);
+        util.addPortUsage(vsum, "Transceiver3", "bus3", FeatureDirectionKind.INOUT);
+
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus3", InPort.class));
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus3", OutPort.class));
+    }
+
+    @Test
+    @DisplayName("Rule B note – inout PortUsage, user picks \"Skip\" → nothing created")
+    void ruleBNote_inoutPortUsage_choiceSkip(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+        util.addPartUsage(vsum, "Transceiver4");
+
+        util.getUserInteraction().addNextSingleSelection(3);
+        util.addPortUsage(vsum, "Transceiver4", "bus4", FeatureDirectionKind.INOUT);
+
+        assertNull(util.getCorrespondingInSimulink(vsum, "bus4", InPort.class));
+        assertNull(util.getCorrespondingInSimulink(vsum, "bus4", OutPort.class));
     }
 
     @Test
@@ -164,6 +212,50 @@ public class SysMLToSimulinkExistenceTest {
 
         OutPort outPort = util.getCorrespondingInSimulink(vsum, "outA", OutPort.class);
         assertNull(outPort.getConnection(), "SingleConnection must be removed when the FlowUsage is deleted");
+    }
+
+    // E15/E16 — AttributeUsage <-> Parameter
+
+    @Test
+    @DisplayName("E15 – AttributeUsage on a PartUsage created → Parameter added to Block.parameters")
+    void e15_partAttributeUsageCreated_blockParameterCreated(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addPartUsage(vsum, "FuelPump");
+        util.addPartAttributeUsage(vsum, "FuelPump", "maxPressure");
+
+        Parameter param = util.getCorrespondingInSimulink(vsum, "maxPressure", Parameter.class);
+        assertNotNull(param, "Parameter must be created for the new AttributeUsage");
+    }
+
+    @Test
+    @DisplayName("E15 – AttributeUsage on a PortUsage created → Parameter added to Port.parameters")
+    void e15b_portAttributeUsageCreated_portParameterCreated(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addPartUsage(vsum, "PressureSensor");
+        util.addPortUsage(vsum, "PressureSensor", "reading", FeatureDirectionKind.OUT);
+        util.addPortAttributeUsage(vsum, "reading", "unit");
+
+        Parameter param = util.getCorrespondingInSimulink(vsum, "unit", Parameter.class);
+        assertNotNull(param, "Parameter must be created for the AttributeUsage on a PortUsage");
+    }
+
+    @Test
+    @DisplayName("E16 – AttributeUsage deleted → corresponding Parameter removed")
+    void e16_attributeUsageDeleted_parameterRemoved(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addPartUsage(vsum, "Clutch");
+        util.addPartAttributeUsage(vsum, "Clutch", "engageForce");
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "engageForce", Parameter.class));
+
+        util.deleteFromSysml(vsum, "engageForce", org.omg.sysml.lang.sysml.AttributeUsage.class);
+
+        assertNull(util.getCorrespondingInSimulink(vsum, "engageForce", Parameter.class), "Parameter must be removed");
     }
 
     // Rule D — the requirement/function cascade is Simulink -> SysML only

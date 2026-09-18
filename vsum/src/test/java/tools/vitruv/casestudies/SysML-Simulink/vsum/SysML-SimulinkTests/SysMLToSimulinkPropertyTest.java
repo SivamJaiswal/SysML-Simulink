@@ -8,8 +8,11 @@ import org.omg.sysml.lang.sysml.PartUsage;
 import org.omg.sysml.lang.sysml.PortUsage;
 import org.omg.sysml.lang.sysml.FeatureDirectionKind;
 
+import org.omg.sysml.lang.sysml.AttributeUsage;
+
 import hu.bme.mit.massif.simulink.Block;
 import hu.bme.mit.massif.simulink.OutPort;
+import hu.bme.mit.massif.simulink.Parameter;
 
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.xmi.impl.XMIResourceFactoryImpl;
@@ -75,5 +78,19 @@ public class SysMLToSimulinkPropertyTest {
 
         assertNull(util.getCorrespondingInSimulink(vsum, "oldSignal", OutPort.class));
         assertNotNull(util.getCorrespondingInSimulink(vsum, "newSignal", OutPort.class));
+    }
+
+    @Test
+    @DisplayName("P6 – AttributeUsage renamed → Parameter.name updated")
+    void p6_attributeUsageRenamed_parameterNameUpdated(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addPartUsage(vsum, "Compressor");
+        util.addPartAttributeUsage(vsum, "Compressor", "oldRating");
+        util.renameInSysml(vsum, "oldRating", AttributeUsage.class, "newRating");
+
+        assertNull(util.getCorrespondingInSimulink(vsum, "oldRating", Parameter.class));
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "newRating", Parameter.class));
     }
 }

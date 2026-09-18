@@ -37,7 +37,7 @@ For the SysML ↔ Simulink case study, the relevant sub-model is the **technical
 | `PortDefinition` | `OccurrenceDefinition → Structure → Class` | Type of a `PortUsage` |
 | `FlowUsage` | `ConnectorAsUsage, ActionUsage, Flow → Connector, Step` | Maps to Simulink `SingleConnection` (Rule C) |
 | `FlowDefinition` | `ActionDefinition, Interaction → Association, Behavior` | Type of a `FlowUsage` |
-| `AttributeUsage` | `Usage → Feature → ...` | Maps to Simulink `Parameter` (name/type only; documented, not implemented) |
+| `AttributeUsage` | `Usage → Feature → ...` | Maps to Simulink `Parameter` (Rule E, name only) |
 | `ActionUsage` | `OccurrenceUsage, Step → Feature` | Represents a "function"; created by the traceability cascade (Rule D) |
 | `RequirementUsage` | `ConstraintUsage, BooleanExpression → OccurrenceUsage` | Represents a "requirement"; created by the traceability cascade (Rule D) |
 | `Package` | `Namespace → Element` | VSUM root anchor on the SysML side |
@@ -84,7 +84,7 @@ A `PortUsage` (`OccurrenceUsage`) is "a point at which external entities can con
 | Attribute / Reference | Type | Derived? | Description |
 |---|---|---|---|
 | `declaredName` (inherited) | `EString` | No | Propagated to the corresponding Simulink `Port`'s name. |
-| `direction` (inherited from `Feature`) | `FeatureDirectionKind` (`in`/`out`/`inout`) | **No** | `in` → Simulink `InPort`; `out` → Simulink `OutPort`; `inout` has **no Simulink equivalent** — Simulink ports are strictly one-directional (see §3.4, Rule B note). |
+| `direction` (inherited from `Feature`) | `FeatureDirectionKind` (`in`/`out`/`inout`) | **No** | `in` → Simulink `InPort`; `out` → Simulink `OutPort`; `inout` has no deterministic target — Simulink ports are strictly one-directional by class, so this is resolved interactively at runtime (see §3.4, Rule B note). |
 | `portDefinition` | `PortDefinition[*]` | Yes | The `PortDefinition`(s) typing this usage. |
 
 ### 1.7 FlowUsage / FlowDefinition
@@ -96,16 +96,16 @@ A `FlowUsage` is both a KerML `Flow` (a kind of `Connector`) and an `ActionUsage
 | `flowEnd` | `Usage[0..2]` | Yes | The two connected features — nominally two `PortUsage`s, one `out` and one `in`. |
 | `flowDefinition` | `Interaction[*]` | Yes | The `FlowDefinition` typing this usage. |
 
-Simulink's `MultiConnection` (one `OutPort` fanning out to many `InPort`s via nested `SingleConnection`s) has **no single-`FlowUsage` equivalent** — it would require several `FlowUsage`s sharing the same source `flowEnd`. This asymmetry is intentionally left unimplemented (see §3.4, Rule C note).
+Simulink's `MultiConnection` (one `OutPort` fanning out to many `InPort`s via nested `SingleConnection`s) has no single-`FlowUsage` equivalent — instead, each branch `SingleConnection` gets its own `FlowUsage` sharing the same source (see §3.4, E17).
 
 ### 1.8 AttributeUsage / AttributeDefinition
 
 | Attribute / Reference | Type | Derived? | Description |
 |---|---|---|---|
-| `declaredName` (inherited) | `EString` | No | Propagated to the corresponding Simulink `Parameter.name`. |
-| `attributeDefinition` | `DataType[*]` | Yes | The `AttributeDefinition`/`DataType` typing this usage; its name is propagated (as a string) to `Parameter.type`. |
+| `declaredName` (inherited) | `EString` | No | Propagated to the corresponding Simulink `Parameter.name` (Rule E). |
+| `attributeDefinition` | `DataType[*]` | Yes | The `AttributeDefinition`/`DataType` typing this usage; not propagated. |
 
-Note: an `AttributeUsage`'s *value* is expressed via a nested `FeatureValue`/`LiteralExpression` subtree several relationship-hops away, not a direct attribute. Value propagation is out of scope for this project, which only propagates structural/interface-level properties, not literal values.
+Note: an `AttributeUsage`'s *value* is expressed via a nested `FeatureValue`/`LiteralExpression` subtree several relationship-hops away, not a direct attribute. Value propagation is out of scope for this project — Rule E only propagates existence and name, same scope as every other rule here (P1–P6 only ever sync a name, never a literal value).
 
 ### 1.9 ActionUsage / RequirementUsage (traceability cascade classes)
 
@@ -120,7 +120,7 @@ The formal `Satisfy`/`Perform`/`Allocate` relationships that would properly wire
 
 ### 1.10 Package
 
-`Package` (`Namespace`) is the SysML-side VSUM root anchor — the single top-level object every other SysML element is reachable from. Top-level `PartUsage`s owned (via the generic `Membership` mechanism) by a `Package` correspond to root-level `Block`s contained directly in a Simulink `SimulinkModel.contains`.
+`Package` (`Namespace`) is the SysML-side VSUM root anchor — the single top-level object every other SysML element is reachable from. Top-level `PartUsage`s owned (via the generic `Membership` mechanism) by a `Package` correspond to root-level `Block`s. Note this is *not* a `Package`↔`SimulinkModel` correspondence — see §2.9's note on why that pairing is deliberately not implemented.
 
 ### 1.11 Inheritance Summary (Classes Relevant to Mapping)
 
@@ -129,8 +129,8 @@ The formal `Satisfy`/`Perform`/`Allocate` relationships that would properly wire
 | `PartUsage` | `ItemUsage → OccurrenceUsage → Usage → Feature → Type → Namespace → Element` | Rule A |
 | `PartDefinition` | `ItemDefinition → OccurrenceDefinition → Definition, Class` | Rule A (type-side, no direct mapping) |
 | `PortUsage` | `OccurrenceUsage → Usage → Feature → ...` | Rule B |
-| `FlowUsage` | `ConnectorAsUsage, ActionUsage, Flow` | Rule C |
-| `AttributeUsage` | `Usage → Feature → ...` | documented, not implemented |
+| `FlowUsage` | `ConnectorAsUsage, ActionUsage, Flow` | Rule C, plus Rules F/H (reused as the target for BusSignalMapping and Goto/From) |
+| `AttributeUsage` | `Usage → Feature → ...` | Rule E |
 | `ActionUsage` | `OccurrenceUsage, Step` | Rule D |
 | `RequirementUsage` | `ConstraintUsage, BooleanExpression` | Rule D |
 | `Package` | `Namespace → Element` | VSUM root anchor |
@@ -156,9 +156,20 @@ Unlike SysML, Simulink's containment is almost entirely **direct, non-derived ER
 | `Block` | `SimulinkModel.contains` / `SubSystem.subBlocks` | Maps to SysML `PartUsage` (Rule A) |
 | `SubSystem` | extends `Block` | Maps to SysML `PartUsage` with `nestedPart` (Rule A) |
 | `InPort` / `OutPort` | `Block.ports` | Map to SysML `PortUsage` with `direction = in` / `out` (Rule B) |
+| `Trigger` / `Enable` | `InPort` subtypes | Map to SysML `PortUsage(direction=in)`, same as any `InPort` (Rule B) |
+| `State` | `OutPort` subtype | Maps to SysML `PortUsage(direction=out)`, same as any `OutPort` (Rule B) |
 | `SingleConnection` | `OutPort.connection` (containment) | Maps to SysML `FlowUsage` (Rule C) |
-| `Parameter` | `Block.parameters` / `Port.parameters` | Maps to SysML `AttributeUsage` (documented, name/type only) |
-| `SimulinkModel` | root | VSUM root anchor, corresponds to SysML `Package` |
+| `MultiConnection` | `OutPort.connection` (containment) | Each branch `SingleConnection` maps to its own `FlowUsage` (Rule C, E17) |
+| `Parameter` | `Block.parameters` / `Port.parameters` | Maps to SysML `AttributeUsage` (Rule E, name only) |
+| `BusSelector` / `BusCreator` | `Block` subtypes | Generic `PartUsage`, same as any `Block` (Rule G) |
+| `BusSignalMapping` | `BusSelector.mappings` (containment) | Maps to SysML `FlowUsage` between its `mappingFrom`/`mappingTo` ports (Rule F) |
+| `Goto` / `From` | `Block` subtypes | Generic `PartUsage` (Rule G) **plus** a `FlowUsage` between the linked pair's ports (Rule H) |
+| `GotoTagVisibility` | `Block` subtype | Generic `PartUsage`, same as any `Block` (Rule G) |
+| `ModelReference` | `Block` subtype | Generic `PartUsage`, same as any `Block` (Rule G) |
+| `OutPortBlock` / `InPortBlock` / `TriggerBlock` / `EnableBlock` | `Block` subtypes, wrap a `Port` | Share the wrapped `Port`'s `PortUsage` — no new SysML object (Rule I) |
+| `SimulinkModel` | root | No correspondence — see §2.9 |
+
+`LibraryLinkReference`/`IdentifierReference`/`SimulinkReference` are omitted from this table deliberately: they're the identity/name-carriers embedded in whichever `SimulinkElement` already has its own correspondence above, not separate domain objects — see the note in `SimulinkToSysML.reactions`.
 
 ### 2.3 SimulinkElement (abstract root)
 
@@ -174,7 +185,7 @@ Location: `SimulinkModel.contains[]` or `SubSystem.subBlocks[]`. "The basic buil
 | Attribute / Reference | Type | Multiplicity | Description |
 |---|---|---|---|
 | `simulinkRef.name` (via `SimulinkElement`) | `EString` | 0..1 | Propagated to `PartUsage.declaredName`. |
-| `parameters` | `Parameter`, containment | 0..* | Block-level configuration values. Maps to `AttributeUsage` (documented only). |
+| `parameters` | `Parameter`, containment | 0..* | Block-level configuration values. Maps to `AttributeUsage` (Rule E). |
 | `ports` | `Port`, containment | 0..* | Interface ports of the block. Maps to `PortUsage` (Rule B). |
 | `parent` | `SubSystem` (`eOpposite` of `subBlocks`) | 0..1 | Real, non-derived opposite reference — used to find the logical container without indirection. |
 | `sourceBlockRef` / `sourceBlock` | `LibraryLinkReference` / `Block` (derived) | 0..1 | Link back to a library block template; out of scope for this mapping. |
@@ -196,9 +207,9 @@ Location: `SimulinkModel.contains[]` or `SubSystem.subBlocks[]`. "The basic buil
 | `Port` (abstract) | `SimulinkElement` | `container` (`eOpposite` of `Block.ports`), `portBlock`, `parameters` | Base type. |
 | `InPort` | `Port` | `connection` (`eOpposite` of `SingleConnection.to`) | Maps to SysML `PortUsage` with `direction = in` (Rule B). |
 | `OutPort` | `Port` | `connection` (containment, `eOpposite` of `Connection.from`) | Maps to SysML `PortUsage` with `direction = out` (Rule B). |
-| `Trigger` | `InPort` | `triggerType`, `statesWhenEnabling` | Specialized control-flow port; **no SysML equivalent** in this mapping (one-directional gap, see §3.4 Rule B note). |
-| `Enable` | `InPort` | `statesWhenEnabling` | Same gap as `Trigger`. |
-| `State` | `OutPort` | — | Stateport (e.g. for `Integrator` blocks); same gap. |
+| `Trigger` | `InPort` | `triggerType`, `statesWhenEnabling` | Specialized control-flow port; maps to `PortUsage(direction=in)`, same as any other `InPort` (Rule B) — the control/simulation semantics themselves (`triggerType` etc.) aren't propagated, only existence and name. |
+| `Enable` | `InPort` | `statesWhenEnabling` | Same treatment as `Trigger`. |
+| `State` | `OutPort` | — | Stateport (e.g. for `Integrator` blocks); maps to `PortUsage(direction=out)`, same as any other `OutPort` (Rule B). |
 
 ### 2.7 Connection (abstract) / SingleConnection / MultiConnection
 
@@ -206,7 +217,7 @@ Location: `SimulinkModel.contains[]` or `SubSystem.subBlocks[]`. "The basic buil
 |---|---|---|---|
 | `Connection` (abstract) | `SimulinkElement` | `from` (`OutPort`), `lineName` | Base type for signal connections. |
 | `SingleConnection` | `Connection` | `to` (`InPort`, `eOpposite` of `InPort.connection`), `parent` (`MultiConnection`) | "A simple connection between a single `OutPort` and a single `InPort`." Maps to SysML `FlowUsage` (Rule C). |
-| `MultiConnection` | `Connection` | `connections` (`SingleConnection[]`, containment) | "A connection between a single `OutPort` and multiple `InPort`s." **No single-`FlowUsage` equivalent** — see §1.7. |
+| `MultiConnection` | `Connection` | `connections` (`SingleConnection[]`, containment) | "A connection between a single `OutPort` and multiple `InPort`s." No single-`FlowUsage` equivalent, but each contained `SingleConnection` branch gets its own `FlowUsage` sharing the same source (Rule C, E17) — see §1.7. |
 
 ### 2.8 Parameter
 
@@ -214,19 +225,21 @@ Location: `Block.parameters[]` / `Port.parameters[]`. Not a map — a block may 
 
 | Attribute / Reference | Type | Multiplicity | Description |
 |---|---|---|---|
-| `name` | `EString` | 0..1 | Plain (non-derived) attribute — unlike `SimulinkElement.name`, this one is directly settable. Maps to `AttributeUsage.declaredName`. |
-| `type` | `EString` | 0..1 | String-typed; maps loosely to the name of the `AttributeUsage`'s `attributeDefinition`. |
+| `name` | `EString` | 0..1 | Plain (non-derived) attribute — unlike `SimulinkElement.name`, this one is directly settable. Maps to `AttributeUsage.declaredName` (Rule E). |
+| `type` | `EString` | 0..1 | Not propagated. |
 | `value` | `EString` | 0..1 | Free-text value. Not propagated (no reliable SysML-side counterpart — see §1.8). |
 | `readOnly` | `EBoolean` | 0..1 | No SysML equivalent. |
 
 ### 2.9 SimulinkModel (root)
 
-"The root of an imported Simulink system that contains blocks." Corresponds to the SysML `Package` as the VSUM root anchor.
+"The root of an imported Simulink system that contains blocks." Used as the root in `VSUMExample.java` (wrapping its `Block`s in `contains`); the test harness (`VSUMRunner`) skips this wrapper for convenience and registers each `Block` as its own resource root directly.
 
 | Attribute / Reference | Type | Multiplicity | Description |
 |---|---|---|---|
-| `contains` | `Block`, containment | 0..* | Root-level blocks. Corresponds to top-level `PartUsage`s owned by the SysML `Package`. |
+| `contains` | `Block`, containment | 0..* | Root-level blocks. Each contained `Block` gets its own `PartUsage` correspondence via Rule A, same as if it were registered as an independent root. |
 | `version`, `file`, `library` | `EString`/`EString`/`EBoolean` | — | Import metadata; no SysML equivalent. |
+
+**`SimulinkModel` itself has no correspondence to the SysML `Package` root — deliberately, not by oversight.** Unlike every other rule in this project, there's no derivable relationship between the two: a `SimulinkModel` and a `Package` are independently-created top-level roots, neither built in response to the other, so there's no source feature a reaction could navigate from one to reach the other. More fundamentally, no reaction would ever need to query such a correspondence, since every actual propagation in this project happens between the *contained* elements (`Block`↔`PartUsage` etc.), which already have their own correspondences — a root-to-root link here would be inert bookkeeping nobody reads.
 
 ### 2.10 Inheritance Summary (Classes Relevant to Mapping)
 
@@ -236,11 +249,17 @@ Location: `Block.parameters[]` / `Port.parameters[]`. Not a map — a block may 
 | `SubSystem` | `Block` | Rule A |
 | `InPort` | `Port → SimulinkElement` | Rule B |
 | `OutPort` | `Port → SimulinkElement` | Rule B |
-| `Trigger`, `Enable`, `State` | `InPort`/`OutPort` | Rule B (documented gap, not implemented) |
+| `Trigger`, `Enable`, `State` | `InPort`/`OutPort` | Rule B |
 | `SingleConnection` | `Connection → SimulinkElement` | Rule C |
-| `MultiConnection` | `Connection → SimulinkElement` | Rule C (documented gap, not implemented) |
-| `Parameter` | (none, plain `EObject`) | documented only |
-| `SimulinkModel` | `SimulinkElement` | VSUM root anchor |
+| `MultiConnection` | `Connection → SimulinkElement` | Rule C (via its branches, E17) |
+| `Parameter` | (none, plain `EObject`) | Rule E |
+| `BusSelector`, `BusCreator` | `BusSpecification → Block` | Rule G |
+| `BusSignalMapping` | (none, plain `EObject`) | Rule F |
+| `Goto`, `From`, `GotoTagVisibility` | `VirtualBlock → Block` | Rule G (all three), Rule H (Goto/From only) |
+| `ModelReference` | `Block` | Rule G |
+| `OutPortBlock`, `InPortBlock`, `TriggerBlock`, `EnableBlock` | `PortBlock → VirtualBlock → Block` | Rule I |
+| `SimulinkModel` | `SimulinkElement` | none — see §2.9 |
+| `LibraryLinkReference`, `IdentifierReference` | `SimulinkReference` | none — carried by the parent's correspondence, see §2.2 |
 
 ---
 
@@ -250,9 +269,9 @@ There is no published correspondence table for this metamodel pair. The rules be
 
 Three things to read this section with in mind:
 
-- Rules A–C are bidirectional. Rule D (the requirement/function traceability cascade) is **one-directional (Simulink → SysML only)** — Simulink has no Requirement or Function concept to originate the reverse direction from. This mirrors the paper's own demonstrated scenario.
+- Rules A–C and E are bidirectional. Rules D and F–I are **one-directional (Simulink → SysML only)** — in each case the SysML side has no concept (requirement/function cascade trigger, bus signal mapping, these specific Block subtypes, tag-based routing, port-boundary diagram blocks) to originate the reverse direction from. Rule D mirrors the paper's own demonstrated scenario; Rules F–I are this project's own extension beyond the paper, applying the same "every class needs a correspondence" standard to the rest of the Simulink metamodel.
 - Several sub-rules are **intentionally omitted** where the source `.ecore` files don't support a faithful mapping without deeper, out-of-scope modeling. Each omission is documented with its reason rather than left as a silent gap.
-- Open questions equivalent to "confirm with Benedikt" are marked as *(needs domain-owner confirmation)*.
+- The one genuinely ambiguous decision point in the whole rule set — `PortUsage(direction=inout)`, previously marked *(needs domain-owner confirmation)* — is now resolved interactively at runtime rather than left as an open question; see the Rule B note.
 
 ### 3.1 Semantic Overlap Summary
 
@@ -262,9 +281,14 @@ Three things to read this section with in mind:
 | **A** | `PartUsage` (`nestedPart->notEmpty()`) | `SubSystem` — has `subBlocks` |
 | **B** | `PortUsage` (`direction = in`) | `InPort` |
 | **B** | `PortUsage` (`direction = out`) | `OutPort` |
-| **B** | `PortUsage` (`direction = inout`) | *(no mapping — see Rule B note)* |
+| **B** | `PortUsage` (`direction = inout`) | resolved interactively at runtime — see Rule B note |
 | **C** | `FlowUsage` (`flowEnd->size() = 2`) | `SingleConnection` |
 | **D** | `PartUsage` + sibling `ActionUsage` + sibling `RequirementUsage` | `Block`/`SubSystem` created with no corresponding architecture element (Simulink → SysML only) |
+| **E** | `AttributeUsage` | `Parameter` — on a `Block` or a `Port` |
+| **F** | `FlowUsage` | `BusSignalMapping` (Simulink → SysML only) |
+| **G** | `PartUsage` (generic) | `BusSelector`, `BusCreator`, `Goto`, `From`, `GotoTagVisibility`, `ModelReference` (Simulink → SysML only) |
+| **H** | `FlowUsage` | `From` with a resolved `gotoBlock` link (Simulink → SysML only) |
+| **I** | shares the wrapped `Port`'s `PortUsage` (no new object) | `OutPortBlock`, `InPortBlock`, `TriggerBlock`, `EnableBlock` (Simulink → SysML only) |
 
 ### 3.2 Correspondence Rules in Detail
 
@@ -307,9 +331,9 @@ Context sysml::PortUsage
 | `PortUsage.declaredName` | `InPort.simulinkRef.name` / `OutPort.simulinkRef.name` |
 | `PortUsage` nested under `PartUsage` | `Port` in `Block.ports[]` |
 
-**Note** — `direction = inout` has no Simulink target. Simulink's `Port` hierarchy is strictly one-directional by class (`InPort` vs `OutPort` are disjoint EClasses); there is no bidirectional port EClass to map to. Left unmapped. *(needs domain-owner confirmation on whether `inout` ports should be split into a paired in/out port on the Simulink side.)*
+**Note** — `direction = inout` has no deterministic Simulink target: `InPort`/`OutPort` are disjoint EClasses, so there's no bidirectional port EClass to map to, and no rule of the kind used elsewhere in this project (a structural guard, a resolved reference) can settle it automatically. Rather than leave it silently unmapped, this is the one case in the whole rule set resolved **interactively**: when a `PortUsage(direction=inout)` is created, the user is prompted to choose — map as `InPort`, map as `OutPort`, create a paired `InPort` + `OutPort`, or skip (leave unmapped, same as the old default). This uses Vitruv's own `UserInteractor` API, already wired into the project via `CliInteractionResultProviderImpl` (real prompts, used by `VSUMExample`) and `TestUserInteraction` (scripted answers, used by the automated test suite — `mvn clean verify` never blocks on real input). See `resolveInoutPortUsage` in `SysMLToSimulink.reactions`.
 
-**Note** — the reverse direction has a gap of its own: Simulink's `Trigger`, `Enable`, and `State` (all subtypes of `InPort`/`OutPort`) carry control-flow/simulation semantics that a plain SysML `PortUsage` + `direction` cannot express. These are intentionally **not** propagated to SysML.
+**Note** — Simulink's `Trigger`, `Enable`, and `State` (all subtypes of `InPort`/`OutPort`) carry control-flow/simulation semantics that a plain SysML `PortUsage` + `direction` cannot express. Rather than leave them unpropagated, they get the same `PortUsage` treatment as any other `InPort`/`OutPort` (E8/E9 already match on the abstract `Port` supertype) — only the specialized semantics themselves (`triggerType`, `statesWhenEnabling`) are not propagated, matching this project's existence/name-only scope everywhere else.
 
 #### Rule C — FlowUsage ↔ SingleConnection
 
@@ -322,7 +346,7 @@ Context sysml::PortUsage
 | `FlowUsage.flowEnd[1]` (end typed by the `out` `PortUsage`) | `SingleConnection.from` (via the corresponding `OutPort`) |
 | `FlowUsage.flowEnd[2]` (end typed by the `in` `PortUsage`) | `SingleConnection.to` (via the corresponding `InPort`) |
 
-**Note** — Simulink's `MultiConnection` (one `OutPort` fanning out to several `InPort`s via nested `SingleConnection`s) has no single-`FlowUsage` equivalent in this rule. A faithful mapping would require either (a) several `FlowUsage`s sharing the same source `flowEnd`, or (b) a dedicated multi-ended `FlowUsage`. Neither is implemented — **omitted**, and flagged here rather than left as a silent gap.
+**Note** — Simulink's `MultiConnection` (one `OutPort` fanning out to several `InPort`s via nested `SingleConnection`s) has no single-`FlowUsage` equivalent, since `FlowUsage.flowEnd->size() <= 2`. Option (a) from the original plan — several `FlowUsage`s sharing the same source — is what's implemented (E17): each contained `SingleConnection` branch gets its own `FlowUsage`, resolving its source via the parent `MultiConnection.from` (a branch's own `from` is never populated — only the top `MultiConnection`'s is, via the `OutPort.connection` eOpposite).
 
 #### Rule D — Traceability cascade: Block/SubSystem → PartUsage + ActionUsage + RequirementUsage
 
@@ -338,6 +362,52 @@ This rule is not a metaclass-to-metaclass correspondence like A–C; it reproduc
 
 **Omission, honestly flagged:** the cascade creates three *sibling* elements with consistent names, but does **not** create the formal `SatisfyRequirementUsage` / `PerformActionUsage` / `AllocationUsage` relationship objects that would properly wire Requirement → Function → Architecture together in SysML's traceability model. Grycz et al. flag exactly this same gap themselves (§5.2, discussing Figure 6): *"a further refining and detailing could be accomplished ... additional relationships such as «satisfy», «allocate», and trace links between requirements, functions, and technical architecture elements can be established"* — i.e. the paper's own case study also stops at generating the three elements and leaves the relationship wiring as manual/future work. This project does the same, deliberately, rather than inventing an under-specified auto-wiring policy.
 
+#### Rule E — AttributeUsage ↔ Parameter
+
+- SysML: `AttributeUsage`, nested under a `PartUsage` or a `PortUsage`
+- Simulink: `Parameter`, in `Block.parameters[]` or `Port.parameters[]`
+- Bidirectional, same scope as Rules A–C: only existence and `declaredName`/`name` are synced. `Parameter.value`/`type`/`readOnly` and `AttributeUsage.attributeDefinition` are not propagated — see §1.8/§2.8.
+
+| SysML | Simulink |
+|---|---|
+| `AttributeUsage.declaredName` | `Parameter.name` |
+| `AttributeUsage` nested under `PartUsage`/`PortUsage` | `Parameter` in `Block.parameters[]`/`Port.parameters[]` |
+
+#### Rule F — BusSignalMapping → FlowUsage (Simulink → SysML only)
+
+`BusSignalMapping` records that a `BusSelector`'s `mappingFrom` `OutPort` supplies the signal that appears on its `mappingTo` `OutPort`. That's the same "signal appears on this port" semantic Rule C already models with `FlowUsage`, so it reuses the same target class: a `FlowUsage` is created between the two ports' `PortUsage`s. There's no SysML-side `BusSignalMapping` concept to originate a reverse direction from, so this rule is one-directional, like Rule D.
+
+`BusSignalMapping` isn't a `SimulinkElement` (it has no `simulinkRef`), so the generated `FlowUsage` is given a synthetic `declaredName` (`<mappingFrom>_to_<mappingTo>`) purely so it's locatable by name — every other auto-created `FlowUsage` in this project is left unnamed.
+
+#### Rule G — Generic Block-subtype → PartUsage (Simulink → SysML only)
+
+`BusSelector`, `BusCreator`, `Goto`, `From`, `GotoTagVisibility`, and `ModelReference` are all `Block` subtypes that don't fit Rule A's `Block`/`SubSystem` distinction, but are still real blocks an engineer would see in the diagram. Each gets a generic `PartUsage` via the same mechanism as Rule A (E3), just with its own explicit reaction guard rather than relying on `BlockCreated`'s unguarded type match. This is deliberately guarded, not accidental — see the `PortBlock` exclusion note under Rule I.
+
+The class-specific semantics beyond existence and name are not modeled: `BusSelector`/`BusCreator`'s internal bus routing is Rule F's job (at the signal-mapping level, not the block level); `Goto`/`From`'s tag-based link is Rule H's job; `GotoTagVisibility`'s scoping and `ModelReference`'s external-model link have no further propagation.
+
+#### Rule H — Goto/From tag-based virtual wire → FlowUsage (Simulink → SysML only)
+
+Simulink's `Goto`/`From` blocks pass a signal without an explicit wire — `From.gotoBlock` (eOpposite `Goto.fromBlocks`) is the resolved link, presumably established by whatever produced the model via `gotoTag`/`TagVisibility` matching. This rule trusts that link as-is rather than independently re-deriving it from tag strings, and models it as a `FlowUsage` even though no `Connection` object backs it:
+
+| SysML | Simulink |
+|---|---|
+| `FlowUsage.source` | the linked `Goto`'s own `InPort`'s `PortUsage` (the relay source) |
+| `FlowUsage.target` | the `From`'s own `OutPort`'s `PortUsage` |
+
+Flow direction follows the real signal path (Goto receives, From re-emits) — source is an `in`-directioned `PortUsage` and target is `out`-directioned, the reverse type pattern from Rule C. That's correct for this case, not a mistake. Fan-out (several `From` blocks sharing one `Goto`) falls out naturally, since each `From` triggers its own independent match.
+
+**Known gap, honestly flagged:** deleting the `Goto` side while a `From` still references it does not clean up the resulting orphaned `FlowUsage` — `gotoBlock` going `null` is an `EReference` change, which the Reactions DSL used here can only react to via `EAttribute`-level events, not `EReference`-level ones (see §1.3/§2.3 for the same constraint elsewhere).
+
+#### Rule I — PortBlock family → shares its wrapped Port's PortUsage, not a new PartUsage (Simulink → SysML only)
+
+`OutPortBlock`, `InPortBlock`, `TriggerBlock`, `EnableBlock` (all `PortBlock` subtypes) are diagram-only stand-ins representing where a `SubSystem`'s boundary port appears inside that subsystem's own internal view — the same SysML-visible interface point as the `Port` it wraps (`PortBlock.port`), not a second one. Giving each its own `PartUsage` (as Rule G would, if left unguarded) would create a spurious duplicate, so `BlockCreated`/`BlockDeleted`/`BlockRenamed` explicitly exclude the `PortBlock` family, and a dedicated rule instead registers a *second correspondence* pointing the `PortBlock` at the **same** `PortUsage` its wrapped `Port` already corresponds to:
+
+| SysML | Simulink |
+|---|---|
+| (no new object) | `PortBlock.port`'s existing `PortUsage` correspondence, shared |
+
+Deleting a `PortBlock` removes only its own (shared) correspondence entry — the `PortUsage` itself is not deleted, since it's still owned by the real `Port`'s own lifecycle (Rule B / E10).
+
 ### 3.3 OCL Invariant Summary
 
 ```
@@ -350,7 +420,8 @@ Context sysml::PartUsage
 Context sysml::PortUsage
   Inv is_input:  self.direction = FeatureDirectionKind::_'in'
   Inv is_output: self.direction = FeatureDirectionKind::out
-  Inv no_target: self.direction = FeatureDirectionKind::inout implies not corresponding(simulink::Port)
+  -- direction = inout has no fixed invariant here — the outcome (InPort, OutPort, both, or neither)
+  -- depends on a runtime user choice (resolveInoutPortUsage), not a static structural rule.
 
 -- Rule C: FlowUsage ↔ SingleConnection
 Context sysml::FlowUsage
@@ -363,7 +434,14 @@ Context sysml::PartUsage
           correspondingActionUsage().declaredName = 'process' + self.declaredName
       correspondingRequirementUsage()->notEmpty() implies
           correspondingRequirementUsage().declaredName = self.declaredName + 'Requirement'
+
+-- Rule E: AttributeUsage <-> Parameter name consistency
+Context sysml::AttributeUsage
+  Inv name_sync: corresponding(simulink::Parameter) implies
+      corresponding(simulink::Parameter).name = self.declaredName
 ```
+
+Rules F–I are intentionally left out of this OCL summary — they're guard/structural rules (generic block treatment, a resolved reference link, a shared correspondence) rather than metaclass-level invariants like A–E, so a formal OCL statement wouldn't add clarity beyond their §3.2 descriptions.
 
 ### 3.4 Consistency Preservation Rules
 
@@ -387,6 +465,15 @@ Rules are grouped into four categories: **Existence (E)**, **Property (P)**, **S
 | E12 | SysML `FlowUsage` deleted | delete corresponding `SingleConnection` |
 | E13 | Simulink `SingleConnection` created | create SysML `FlowUsage` between the corresponding `PortUsage`s |
 | E14 | Simulink `SingleConnection` deleted | delete corresponding `FlowUsage` |
+| E15 | SysML `AttributeUsage` created (on a `PartUsage` or `PortUsage`) / Simulink `Parameter` created (on a `Block` or `Port`) | create the corresponding `Parameter` / `AttributeUsage`; add correspondence (Rule E, bidirectional) |
+| E16 | SysML `AttributeUsage` deleted / Simulink `Parameter` deleted | delete the corresponding `Parameter` / `AttributeUsage` |
+| E17 | Simulink `SingleConnection` created as a `MultiConnection` branch | create a `FlowUsage`, resolving the source via the parent `MultiConnection.from` (Rule C) |
+| E18 | Simulink `From` created with a resolved `gotoBlock` link | create a `FlowUsage` from the linked `Goto`'s `InPort` to the `From`'s own `OutPort` (Rule H) |
+| E19 | Simulink `From` deleted | delete the corresponding virtual-wire `FlowUsage` (Rule H) |
+| E20 | Simulink `PortBlock` created (wrapping an already-corresponded `Port`) | add a second correspondence to the same `PortUsage` (Rule I) |
+| E21 | Simulink `PortBlock` deleted | remove only the `PortBlock`'s own correspondence entry, not the shared `PortUsage` (Rule I) |
+
+`BusSelector`/`BusCreator`/`Goto`/`From`/`GotoTagVisibility`/`ModelReference` creation/deletion (Rule G) reuse E3/E4 directly — no new rule IDs, just additional guarded matches on the same reactions. `BusSignalMapping` creation/deletion (Rule F) similarly reuses the same create/delete shape as E13/E14 without a new ID, since it's the same target class (`FlowUsage`).
 
 #### Property Rules — attribute value changes
 
@@ -397,6 +484,7 @@ Rules are grouped into four categories: **Existence (E)**, **Property (P)**, **S
 | P3 | `PortUsage.declaredName` changed | set `InPort`/`OutPort`'s `simulinkRef.name` = new name |
 | P4 | `InPort`/`OutPort`'s `simulinkRef.name` changed | set `PortUsage.declaredName` = new name |
 | P5 | `PartUsage.declaredName` changed (where Rule D siblings exist) | cascade-rename the corresponding `ActionUsage`/`RequirementUsage` to keep `'process' + name` / `name + 'Requirement'` consistent |
+| P6 | `AttributeUsage.declaredName` changed / `Parameter.name` changed | set the other side's name to match (Rule E, bidirectional) |
 
 #### Structural Rules — containment and type-migration changes
 
@@ -411,9 +499,11 @@ Rules are grouped into four categories: **Existence (E)**, **Property (P)**, **S
 | ID | Invariant |
 |---|---|
 | C1 | Every childless `PartUsage` has a corresponding `Block`, and vice versa; every `PartUsage` with `nestedPart->notEmpty()` has a corresponding `SubSystem`, and vice versa |
-| C2 | Every `PortUsage` with `direction ∈ {in, out}` has a corresponding `InPort`/`OutPort`, and vice versa (excluding `Trigger`/`Enable`/`State`, which have no SysML counterpart) |
-| C3 | Every 2-ended `FlowUsage` has a corresponding `SingleConnection`, and vice versa (excluding `MultiConnection`, which is out of scope) |
+| C2 | Every `PortUsage` with `direction ∈ {in, out}` has a corresponding `InPort`/`OutPort`/`Trigger`/`Enable`/`State`, and vice versa |
+| C3 | Every 2-ended `FlowUsage` has a corresponding `SingleConnection` (or `MultiConnection` branch, or `BusSignalMapping`, or Goto/From link), and vice versa |
 | C4 | Every SysML `PartUsage` created via Rule D's cascade has exactly one sibling `ActionUsage` and one sibling `RequirementUsage` with names consistent with `declaredName` |
+
+C1–C4 predate Rules E–I and don't yet have dedicated completeness checks of their own (no `PortBlock`-duplicate-`PartUsage` invariant, no `AttributeUsage`/`Parameter` completeness check) — the Existence-rule tests (E15–E21) cover the same ground per-instance, just not as a model-wide invariant the way C1–C4 do.
 
 ---
 

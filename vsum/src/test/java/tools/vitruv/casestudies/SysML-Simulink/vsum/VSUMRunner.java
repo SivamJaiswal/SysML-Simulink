@@ -7,6 +7,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.EObject;
@@ -16,6 +17,7 @@ import org.omg.sysml.lang.sysml.SysMLFactory;
 import org.omg.sysml.lang.sysml.PartUsage;
 import org.omg.sysml.lang.sysml.PortUsage;
 import org.omg.sysml.lang.sysml.FlowUsage;
+import org.omg.sysml.lang.sysml.AttributeUsage;
 import org.omg.sysml.lang.sysml.ActionUsage;
 import org.omg.sysml.lang.sysml.RequirementUsage;
 import org.omg.sysml.lang.sysml.FeatureDirectionKind;
@@ -27,7 +29,26 @@ import hu.bme.mit.massif.simulink.Block;
 import hu.bme.mit.massif.simulink.SubSystem;
 import hu.bme.mit.massif.simulink.InPort;
 import hu.bme.mit.massif.simulink.OutPort;
+import hu.bme.mit.massif.simulink.Port;
+import hu.bme.mit.massif.simulink.Port;
+import hu.bme.mit.massif.simulink.Trigger;
+import hu.bme.mit.massif.simulink.Enable;
+import hu.bme.mit.massif.simulink.State;
+import hu.bme.mit.massif.simulink.Parameter;
 import hu.bme.mit.massif.simulink.SingleConnection;
+import hu.bme.mit.massif.simulink.MultiConnection;
+import hu.bme.mit.massif.simulink.BusSelector;
+import hu.bme.mit.massif.simulink.BusCreator;
+import hu.bme.mit.massif.simulink.BusSignalMapping;
+import hu.bme.mit.massif.simulink.Goto;
+import hu.bme.mit.massif.simulink.From;
+import hu.bme.mit.massif.simulink.GotoTagVisibility;
+import hu.bme.mit.massif.simulink.ModelReference;
+import hu.bme.mit.massif.simulink.PortBlock;
+import hu.bme.mit.massif.simulink.OutPortBlock;
+import hu.bme.mit.massif.simulink.InPortBlock;
+import hu.bme.mit.massif.simulink.TriggerBlock;
+import hu.bme.mit.massif.simulink.EnableBlock;
 import hu.bme.mit.massif.simulink.IdentifierReference;
 
 import tools.vitruv.change.testutils.TestUserInteraction;
@@ -42,11 +63,16 @@ import mir.reactions.simulinkToSysml.SimulinkToSysmlChangePropagationSpecificati
 
 public class VSUMRunner {
 
+	// kept alive after createDefaultVirtualModel so tests can script responses (e.g. addNextSingleSelection)
+	// before triggering a change that prompts an interaction — see resolveInoutPortUsage in SysMLToSimulink.reactions.
+	private TestUserInteraction userInteraction;
+
 	public InternalVirtualModel createDefaultVirtualModel(Path projectPath) throws Exception {
+		userInteraction = new TestUserInteraction();
 		InternalVirtualModel vsum = new VirtualModelBuilder()
 				.withStorageFolder(projectPath)
 				.withUserInteractorForResultProvider(
-						new TestUserInteraction.ResultProvider(new TestUserInteraction()))
+						new TestUserInteraction.ResultProvider(userInteraction))
 				.withChangePropagationSpecifications(List.of(
 						new SysmlToSimulinkChangePropagationSpecification(),
 						new SimulinkToSysmlChangePropagationSpecification()))
@@ -55,7 +81,21 @@ public class VSUMRunner {
 		return vsum;
 	}
 
+	public TestUserInteraction getUserInteraction() {
+		return userInteraction;
+	}
+
 	// root registration
+	//
+	// SimulinkModel <-> Package has no correspondence, deliberately, not by oversight: unlike every other rule,
+	// there's no derivable relationship between the two — a SimulinkModel and this Package are independently
+	// created top-level roots, neither built in response to the other, so there's no source feature a reaction
+	// could navigate from one to reach the other. More importantly, no reaction would ever need to query such a
+	// correspondence, since every actual propagation in this project happens between the CONTAINED elements
+	// (Block<->PartUsage etc.), which already have their own correspondences — a root-to-root link here would be
+	// inert bookkeeping nobody reads. VSUMExample.java shows SimulinkModel's real (non-test-harness) usage,
+	// wrapping Blocks in SimulinkModel.contains; VSUMRunner below skips that wrapper for test convenience and
+	// registers each Block as its own resource root directly, which is why no SimulinkModel object appears here.
 
 	public void registerRootObjects(VirtualModel vsum, Path projectPath) {
 		CommittableView view = getDefaultView(vsum, List.of(Package.class)).withChangeRecordingTrait();
@@ -117,6 +157,28 @@ public class VSUMRunner {
 		return outPortName + "->" + inPortName;
 	}
 
+	public String addPartAttributeUsage(VirtualModel vsum, String partName, String attrName) {
+		CommittableView view = getSysmlView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			PartUsage part = findByNameAndType(getSysmlRoot(v), PartUsage.class, partName);
+			AttributeUsage attr = SysMLFactory.eINSTANCE.createAttributeUsage();
+			attr.setDeclaredName(attrName);
+			attach(part, attr);
+		});
+		return attrName;
+	}
+
+	public String addPortAttributeUsage(VirtualModel vsum, String portName, String attrName) {
+		CommittableView view = getSysmlView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			PortUsage port = findByNameAndType(getSysmlRoot(v), PortUsage.class, portName);
+			AttributeUsage attr = SysMLFactory.eINSTANCE.createAttributeUsage();
+			attr.setDeclaredName(attrName);
+			attach(port, attr);
+		});
+		return attrName;
+	}
+
 	public void renameInSysml(VirtualModel vsum, String oldName, Class<? extends EObject> type, String newName) {
 		// searches every sysml root, not just the Package — a root-level PartUsage's nested elements aren't reachable from the Package tree.
 		CommittableView view = getSysmlSearchView(vsum).withChangeRecordingTrait();
@@ -171,7 +233,7 @@ public class VSUMRunner {
 	public String addInPort(VirtualModel vsum, String blockName, String portName) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
-			Block block = findByNameAndType(getSimulinkRoot(v), Block.class, blockName);
+			Block block = findBlockAcrossRoots(v, blockName);
 			InPort port = SimulinkFactory.eINSTANCE.createInPort();
 			setSimulinkName(port, portName);
 			block.getPorts().add(port);
@@ -182,12 +244,67 @@ public class VSUMRunner {
 	public String addOutPort(VirtualModel vsum, String blockName, String portName) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
-			Block block = findByNameAndType(getSimulinkRoot(v), Block.class, blockName);
+			Block block = findBlockAcrossRoots(v, blockName);
 			OutPort port = SimulinkFactory.eINSTANCE.createOutPort();
 			setSimulinkName(port, portName);
 			block.getPorts().add(port);
 		});
 		return portName;
+	}
+
+	public String addTrigger(VirtualModel vsum, String blockName, String portName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Block block = findByNameAndType(getSimulinkRoot(v), Block.class, blockName);
+			Trigger port = SimulinkFactory.eINSTANCE.createTrigger();
+			setSimulinkName(port, portName);
+			block.getPorts().add(port);
+		});
+		return portName;
+	}
+
+	public String addEnable(VirtualModel vsum, String blockName, String portName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Block block = findByNameAndType(getSimulinkRoot(v), Block.class, blockName);
+			Enable port = SimulinkFactory.eINSTANCE.createEnable();
+			setSimulinkName(port, portName);
+			block.getPorts().add(port);
+		});
+		return portName;
+	}
+
+	public String addState(VirtualModel vsum, String blockName, String portName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Block block = findByNameAndType(getSimulinkRoot(v), Block.class, blockName);
+			State port = SimulinkFactory.eINSTANCE.createState();
+			setSimulinkName(port, portName);
+			block.getPorts().add(port);
+		});
+		return portName;
+	}
+
+	public String addBlockParameter(VirtualModel vsum, String blockName, String paramName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Block block = findByNameAndType(getSimulinkRoot(v), Block.class, blockName);
+			Parameter param = SimulinkFactory.eINSTANCE.createParameter();
+			param.setName(paramName);
+			block.getParameters().add(param);
+		});
+		return paramName;
+	}
+
+	public String addPortParameter(VirtualModel vsum, String portName, String paramName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Port port = findByNameAndType(getSimulinkRoot(v), Port.class, portName);
+			Parameter param = SimulinkFactory.eINSTANCE.createParameter();
+			param.setName(paramName);
+			port.getParameters().add(param);
+		});
+		return paramName;
 	}
 
 	// moves a Block found across ANY registered root into a SubSystem, exercising S3 rather than E3's creation-time parent lookup.
@@ -220,18 +337,147 @@ public class VSUMRunner {
 		});
 	}
 
+	public void addMultiConnection(VirtualModel vsum, String outPortName, String... inPortNames) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			OutPort outPort = findByNameAndType(getSimulinkRoot(v), OutPort.class, outPortName);
+			MultiConnection multi = SimulinkFactory.eINSTANCE.createMultiConnection();
+			// sets multi.from via the OutPort.connection eOpposite — branches never get their own `from`.
+			outPort.setConnection(multi);
+			for (String inPortName : inPortNames) {
+				InPort inPort = findByNameAndType(getSimulinkRoot(v), InPort.class, inPortName);
+				SingleConnection branch = SimulinkFactory.eINSTANCE.createSingleConnection();
+				branch.setTo(inPort);
+				multi.getConnections().add(branch);
+			}
+		});
+	}
+
+	// shared by every Block-subtype-as-its-own-root helper below (BusSelector, BusCreator, Goto, From, GotoTagVisibility, ModelReference) — same shape as addBlock, just a different concrete factory.
+	private String addRootBlockLike(VirtualModel vsum, Path filePath, String name, Supplier<? extends Block> factory) {
+		CommittableView view = getDefaultView(vsum, List.of(Block.class)).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Block block = factory.get();
+			setSimulinkName(block, name);
+			v.registerRoot(block, URI.createFileURI(filePath.toString() + "/" + name + ".simulink"));
+		});
+		return name;
+	}
+
+	public String addBusSelector(VirtualModel vsum, Path filePath, String name) {
+		return addRootBlockLike(vsum, filePath, name, SimulinkFactory.eINSTANCE::createBusSelector);
+	}
+
+	public String addBusCreator(VirtualModel vsum, Path filePath, String name) {
+		return addRootBlockLike(vsum, filePath, name, SimulinkFactory.eINSTANCE::createBusCreator);
+	}
+
+	public String addGoto(VirtualModel vsum, Path filePath, String name) {
+		return addRootBlockLike(vsum, filePath, name, SimulinkFactory.eINSTANCE::createGoto);
+	}
+
+	public String addFrom(VirtualModel vsum, Path filePath, String name) {
+		return addRootBlockLike(vsum, filePath, name, SimulinkFactory.eINSTANCE::createFrom);
+	}
+
+	public String addGotoTagVisibility(VirtualModel vsum, Path filePath, String name) {
+		return addRootBlockLike(vsum, filePath, name, SimulinkFactory.eINSTANCE::createGotoTagVisibility);
+	}
+
+	public String addModelReference(VirtualModel vsum, Path filePath, String name) {
+		return addRootBlockLike(vsum, filePath, name, SimulinkFactory.eINSTANCE::createModelReference);
+	}
+
+	// shared by every PortBlock-subtype helper below — wraps an already-existing Port (found within the same root as subsystemName) and nests the PortBlock itself as one of the subsystem's subBlocks.
+	private void addPortBlockLike(VirtualModel vsum, String subsystemName, String portBlockName, String wrappedPortName, Supplier<? extends PortBlock> factory) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			SubSystem subsystem = (SubSystem) findBlockAcrossRoots(v, subsystemName);
+			Port wrappedPort = findByNameAndType(getSimulinkRoot(v), Port.class, wrappedPortName);
+			PortBlock portBlock = factory.get();
+			setSimulinkName(portBlock, portBlockName);
+			portBlock.setPort(wrappedPort);
+			subsystem.getSubBlocks().add(portBlock);
+		});
+	}
+
+	public void addOutPortBlock(VirtualModel vsum, String subsystemName, String portBlockName, String wrappedPortName) {
+		addPortBlockLike(vsum, subsystemName, portBlockName, wrappedPortName, SimulinkFactory.eINSTANCE::createOutPortBlock);
+	}
+
+	public void addInPortBlock(VirtualModel vsum, String subsystemName, String portBlockName, String wrappedPortName) {
+		addPortBlockLike(vsum, subsystemName, portBlockName, wrappedPortName, SimulinkFactory.eINSTANCE::createInPortBlock);
+	}
+
+	public void addTriggerBlock(VirtualModel vsum, String subsystemName, String portBlockName, String wrappedPortName) {
+		addPortBlockLike(vsum, subsystemName, portBlockName, wrappedPortName, SimulinkFactory.eINSTANCE::createTriggerBlock);
+	}
+
+	public void addEnableBlock(VirtualModel vsum, String subsystemName, String portBlockName, String wrappedPortName) {
+		addPortBlockLike(vsum, subsystemName, portBlockName, wrappedPortName, SimulinkFactory.eINSTANCE::createEnableBlock);
+	}
+
+	// gotoBlock must be set before the From is rooted, in the same transaction — the FromLinkedToGotoCreated/
+	// InsertedAsRoot reactions fire once, on creation, and can't be retried later since gotoBlock is a plain
+	// EReference (no attribute-replaced event this DSL can react to). The OutPort is added separately afterward,
+	// via the existing addOutPort helper — adding it here instead, before registerRoot, would silently skip its
+	// own "created" event (see the reaction file's comment on FromOutPortCreated).
+	public String addFromLinkedToGoto(VirtualModel vsum, Path filePath, String fromName, String gotoName) {
+		CommittableView view = getDefaultView(vsum, List.of(Block.class)).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Goto gotoBlock = (Goto) findBlockAcrossRoots(v, gotoName);
+			From fromBlock = SimulinkFactory.eINSTANCE.createFrom();
+			setSimulinkName(fromBlock, fromName);
+			fromBlock.setGotoBlock(gotoBlock);
+			v.registerRoot(fromBlock, URI.createFileURI(filePath.toString() + "/" + fromName + ".simulink"));
+		});
+		return fromName;
+	}
+
+	public String addBusSignalMapping(VirtualModel vsum, String selectorName, String mappingFromPortName, String mappingToPortName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			BusSelector selector = (BusSelector) findByNameAndType(getSimulinkRoot(v), Block.class, selectorName);
+			OutPort from = findByNameAndType(getSimulinkRoot(v), OutPort.class, mappingFromPortName);
+			OutPort to = findByNameAndType(getSimulinkRoot(v), OutPort.class, mappingToPortName);
+			BusSignalMapping mapping = SimulinkFactory.eINSTANCE.createBusSignalMapping();
+			mapping.setMappingFrom(from);
+			mapping.setMappingTo(to);
+			selector.getMappings().add(mapping);
+		});
+		return mappingFromPortName + "_to_" + mappingToPortName;
+	}
+
 	public void renameInSimulink(VirtualModel vsum, String oldName, Class<? extends EObject> type, String newName) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
-		modifyView(view, v -> setSimulinkName((hu.bme.mit.massif.simulink.SimulinkElement) findByNameAndType(getSimulinkRoot(v), type, oldName), newName));
+		modifyView(view, v -> setSimulinkName((hu.bme.mit.massif.simulink.SimulinkElement) findAnywhereInSimulink(v, type, oldName), newName));
+	}
+
+	// Parameter isn't a SimulinkElement, so it can't go through renameInSimulink/setSimulinkName.
+	public void renameParameterInSimulink(VirtualModel vsum, String oldName, String newName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			Parameter param = findByNameAndType(getSimulinkRoot(v), Parameter.class, oldName);
+			param.setName(newName);
+		});
 	}
 
 	public void deleteFromSimulink(VirtualModel vsum, String name, Class<? extends EObject> type) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
-			EObject el = findByNameAndType(getSimulinkRoot(v), type, name);
+			EObject el = findAnywhereInSimulink(v, type, name);
 			// EcoreUtil.delete cleans up cross-references (e.g. a surviving InPort.connection) that remove() would leave dangling.
 			if (el != null) EcoreUtil.delete(el, true);
 		});
+	}
+
+	// searches every registered Block root, not just the first — a Block/From/Goto etc. registered as its own separate root (rather than nested under a shared root) is otherwise unreachable, same fix as findAnywhereInSysml on the SysML side.
+	private <T extends EObject> T findAnywhereInSimulink(View v, Class<T> type, String name) {
+		for (EObject root : v.getRootObjects()) {
+			T found = findByNameAndType(root, type, name);
+			if (found != null) return found;
+		}
+		return null;
 	}
 
 	// simulinkRef.name, not SimulinkElement.name — the latter is derived.
@@ -266,6 +512,56 @@ public class VSUMRunner {
 		}
 		for (EObject root : getDefaultView(vsum, List.of(PartUsage.class, ActionUsage.class, RequirementUsage.class)).getRootObjects()) {
 			T found = findByNameAndType(root, targetType, sourceName);
+			if (found != null) return found;
+		}
+		return null;
+	}
+
+	// counts every sysml object of the given type with the given name — used to assert "exactly one, no duplicates" (e.g. Part 6's PortBlock-vs-Port duplicate-PartUsage check).
+	public <T extends EObject> int countMatchingInSysml(VirtualModel vsum, String name, Class<T> type) {
+		int count = 0;
+		for (EObject root : getSysmlView(vsum).getRootObjects()) {
+			count += countByNameAndType(root, type, name);
+		}
+		for (EObject root : getDefaultView(vsum, List.of(PartUsage.class, ActionUsage.class, RequirementUsage.class)).getRootObjects()) {
+			count += countByNameAndType(root, type, name);
+		}
+		return count;
+	}
+
+	private <T> int countByNameAndType(EObject root, Class<T> type, String name) {
+		int count = (type.isInstance(root) && name.equals(effectiveName(root))) ? 1 : 0;
+		for (EObject child : root.eContents()) {
+			count += countByNameAndType(child, type, name);
+		}
+		return count;
+	}
+
+	// finds a FlowUsage anywhere in the sysml tree whose source/target PortUsages have the given names — needed for
+	// FlowUsages that don't carry a lookup-by-name of their own (branch connections, bus signal mappings).
+	// Compares by name, not object identity — every getDefaultView/getSysmlView call opens a fresh view with its
+	// own object instances, so a from/to PortUsage resolved via one view is never == the ones a flow references
+	// via another view, even though they represent the same underlying model element.
+	public FlowUsage getFlowUsageBetween(VirtualModel vsum, String fromPortName, String toPortName) {
+		for (EObject root : getSysmlView(vsum).getRootObjects()) {
+			FlowUsage found = findFlowUsageBetween(root, fromPortName, toPortName);
+			if (found != null) return found;
+		}
+		for (EObject root : getDefaultView(vsum, List.of(PartUsage.class, ActionUsage.class, RequirementUsage.class)).getRootObjects()) {
+			FlowUsage found = findFlowUsageBetween(root, fromPortName, toPortName);
+			if (found != null) return found;
+		}
+		return null;
+	}
+
+	private FlowUsage findFlowUsageBetween(EObject root, String fromPortName, String toPortName) {
+		if (root instanceof FlowUsage flow
+				&& flow.getSource().stream().anyMatch(e -> fromPortName.equals(effectiveName(e)))
+				&& flow.getTarget().stream().anyMatch(e -> toPortName.equals(effectiveName(e)))) {
+			return flow;
+		}
+		for (EObject child : root.eContents()) {
+			FlowUsage found = findFlowUsageBetween(child, fromPortName, toPortName);
 			if (found != null) return found;
 		}
 		return null;
@@ -325,6 +621,8 @@ public class VSUMRunner {
 	private String effectiveName(EObject el) {
 		if (el instanceof org.omg.sysml.lang.sysml.Element e) return e.getDeclaredName();
 		if (el instanceof hu.bme.mit.massif.simulink.SimulinkElement e) return e.getSimulinkRef() == null ? null : e.getSimulinkRef().getName();
+		// Parameter isn't a SimulinkElement (no simulinkRef indirection) — it has a plain settable name attribute.
+		if (el instanceof Parameter p) return p.getName();
 		return null;
 	}
 

@@ -4,10 +4,17 @@ import "https://www.omg.org/spec/SysML/20250201" as sysml
 import "http://hu.bme.mit.massif/simulink/1.0" as simulink
 
 // Change propagation: Simulink --> SysML
-// Existence rules  : E3, E4, E8, E9, E10, E13, E14
-// Property rules   : P2, P4, P5
+// Existence rules  : E3, E4, E8, E9, E10, E13, E14, E15, E16, E17, E18, E19, E20, E21
+// Property rules   : P2, P4, P5, P6
 // Structural rules : S3 (Block re-parented -> PartUsage re-parented)
 // Rule D           : requirement/function traceability cascade, Simulink -> SysML only.
+// Rule E           : Parameter <-> AttributeUsage, name only.
+// Rule F           : BusSignalMapping <-> FlowUsage, Simulink -> SysML only (no SysML-side BusSignalMapping concept to originate the reverse direction from).
+// Rule G           : every other real Block subtype (BusSelector, BusCreator, Goto, From, GotoTagVisibility, ModelReference) gets a generic PartUsage via E3, deliberately guarded, not accidental. PortBlock family is excluded — see Rule I.
+// Rule H           : Goto/From tag-based virtual wire <-> FlowUsage, Simulink -> SysML only (no SysML-side Goto/From concept).
+// Rule I           : PortBlock family (OutPortBlock/InPortBlock/TriggerBlock/EnableBlock) shares its wrapped Port's PortUsage instead of getting a new PartUsage.
+// SimulinkModel <-> the SysML root Package has no correspondence — deliberately, not by oversight. See VSUMRunner.registerRootObjects for the full reasoning: no derivable relationship between two independently-created roots, and no reaction would ever need to query it since all real propagation happens at the contained-element level.
+// LibraryLinkReference/IdentifierReference/SimulinkReference likewise get no correspondence of their own — they're the identity/name-carriers embedded in whatever SimulinkElement already has its own correspondence, and their name field is exactly what drives the existing P-rules' name sync. Their contribution is carried by the parent's correspondence, not missing.
 // See README.md §3.4 for the full rule table this maps onto.
 
 // NOTE — segment name must start with lowercase (Reactions DSL requirement)
@@ -32,15 +39,17 @@ routine attachAsMember(sysml::Element parent, sysml::Element member) {
 
 // Rule A — Block <-> PartUsage / SubSystem <-> PartUsage
 
-// E3 — Block/SubSystem created (no corresponding PartUsage) -> create a PartUsage and trigger Rule D's cascade.
+// E3 — Block/SubSystem created (no corresponding PartUsage) -> create a PartUsage and trigger Rule D's cascade. Also deliberately covers every other Block subtype that represents a real architecture element an engineer would see: BusSelector/BusCreator (bus routing blocks), Goto/From/GotoTagVisibility (tag-based signal routing), ModelReference (external model reference) — all get a generic PartUsage the same way. PortBlock subtypes are excluded here — see Rule G, they share their wrapped Port's PortUsage instead of getting a new PartUsage.
 reaction BlockCreated {
 	after element simulink::Block created
+		with !(affectedEObject instanceof hu.bme.mit.massif.simulink.PortBlock)
 	call createPartUsageForBlock(affectedEObject)
 }
 
 // A Block registered as a resource root generates InsertRootEObject, not CreateEObject — needs its own reaction alongside BlockCreated.
 reaction BlockInsertedAsRoot {
 	after element simulink::Block inserted as root
+		with !(newValue instanceof hu.bme.mit.massif.simulink.PortBlock)
 	call createPartUsageForBlock(newValue)
 }
 
@@ -108,9 +117,10 @@ routine createFunctionAndRequirementForPartUsage(sysml::PartUsage part) {
 	}
 }
 
-// E4 — Block/SubSystem deleted -> delete corresponding PartUsage and its Rule D siblings, if any.
+// E4 — Block/SubSystem deleted -> delete corresponding PartUsage and its Rule D siblings, if any. PortBlock excluded, same reasoning as BlockCreated above.
 reaction BlockDeleted {
 	after element simulink::Block deleted
+		with !(affectedEObject instanceof hu.bme.mit.massif.simulink.PortBlock)
 	call deletePartUsageForBlock(affectedEObject)
 }
 
@@ -134,11 +144,12 @@ routine deletePartUsageForBlock(simulink::Block block) {
 	}
 }
 
-// P2 — Block.simulinkRef.name changed -> update PartUsage.declaredName, cascading the rename to the Rule D siblings too.
+// P2 — Block.simulinkRef.name changed -> update PartUsage.declaredName, cascading the rename to the Rule D siblings too. PortBlock excluded, same reasoning as BlockCreated above.
 reaction BlockRenamed {
 	after attribute replaced at simulink::IdentifierReference[name]
 		// IdentifierReference.element has no eOpposite, so it's unreliable — eContainer() is EMF's built-in and always correct here.
 		with affectedEObject.eContainer() instanceof hu.bme.mit.massif.simulink.Block
+			&& !(affectedEObject.eContainer() instanceof hu.bme.mit.massif.simulink.PortBlock)
 	call syncBlockNameToPartUsage(affectedEObject)
 }
 
@@ -236,7 +247,7 @@ routine createPortUsageForOutPort(simulink::OutPort outPort) {
 	}
 }
 
-// Trigger/Enable/State (InPort/OutPort subtypes) intentionally have no reaction — no SysML counterpart.
+// Trigger/Enable extend InPort and State extends OutPort, so InPortCreated/OutPortCreated already cover them (same for PortDeleted/PortRenamed below, both matched on the abstract Port supertype) — see SimulinkToSysMLExistenceTest for coverage.
 
 // E10 — InPort or OutPort deleted -> delete corresponding PortUsage
 reaction PortDeleted {
@@ -270,11 +281,88 @@ routine syncPortNameToPortUsage(simulink::IdentifierReference ref) {
 	}
 }
 
+// Rule E — Parameter <-> AttributeUsage. Only name is synced, same scope as every other rule here — Parameter.value has no non-derived SysML target without modeling a full KerML FeatureValue expression tree.
+
+// E15 — Parameter created (on a Block or a Port) -> create an AttributeUsage under the corresponding PartUsage/PortUsage
+reaction ParameterCreated {
+	after element simulink::Parameter created
+	call createAttributeUsageForParameter(affectedEObject)
+}
+
+routine createAttributeUsageForParameter(simulink::Parameter param) {
+	update {
+		createAttributeUsageForBlockParameter(param)
+		createAttributeUsageForPortParameter(param)
+	}
+}
+
+routine createAttributeUsageForBlockParameter(simulink::Parameter param) {
+	match {
+		require absence of sysml::AttributeUsage corresponding to param
+		val part = retrieve sysml::PartUsage corresponding to param.eContainer()
+	}
+	create {
+		val attr = new sysml::AttributeUsage
+	}
+	update {
+		attr.declaredName = param.name
+		attachAsMember(part, attr)
+		addCorrespondenceBetween(param, attr)
+	}
+}
+
+routine createAttributeUsageForPortParameter(simulink::Parameter param) {
+	match {
+		require absence of sysml::AttributeUsage corresponding to param
+		val port = retrieve sysml::PortUsage corresponding to param.eContainer()
+	}
+	create {
+		val attr = new sysml::AttributeUsage
+	}
+	update {
+		attr.declaredName = param.name
+		attachAsMember(port, attr)
+		addCorrespondenceBetween(param, attr)
+	}
+}
+
+// E16 — Parameter deleted -> delete corresponding AttributeUsage
+reaction ParameterDeleted {
+	after element simulink::Parameter deleted
+	call deleteAttributeUsageForParameter(affectedEObject)
+}
+
+routine deleteAttributeUsageForParameter(simulink::Parameter param) {
+	match {
+		val attr = retrieve sysml::AttributeUsage corresponding to param
+	}
+	update {
+		removeObject(attr)
+		removeCorrespondenceBetween(param, attr)
+	}
+}
+
+// P6 — Parameter.name changed -> update AttributeUsage.declaredName. Parameter isn't a SimulinkElement, so name is a plain attribute, no IdentifierReference indirection needed.
+reaction ParameterRenamed {
+	after attribute replaced at simulink::Parameter[name]
+	call syncParameterNameToAttributeUsage(affectedEObject)
+}
+
+routine syncParameterNameToAttributeUsage(simulink::Parameter param) {
+	match {
+		val attr = retrieve sysml::AttributeUsage corresponding to param
+	}
+	update {
+		attr.declaredName = param.name
+	}
+}
+
 // Rule C — SingleConnection <-> FlowUsage
 
-// E13 — SingleConnection created -> create a FlowUsage between the corresponding PortUsages
+// E13 — SingleConnection created (top-level, not a MultiConnection branch) -> create a FlowUsage between the corresponding PortUsages
 reaction SingleConnectionCreated {
 	after element simulink::SingleConnection created
+		with affectedEObject.^parent === null
 	call createFlowUsageForConnection(affectedEObject)
 }
 
@@ -314,4 +402,176 @@ routine deleteFlowUsageForConnection(simulink::SingleConnection connection) {
 	}
 }
 
-// MultiConnection has no FlowUsage equivalent here — see consistency doc, Rule C.
+// E17 — SingleConnection created as a MultiConnection branch -> create a FlowUsage too. A branch's own `from` is unset (only the OutPort.connection eOpposite populates the top MultiConnection's `from`), so the source is resolved via the parent instead.
+reaction MultiConnectionBranchCreated {
+	after element simulink::SingleConnection created
+		with affectedEObject.^parent !== null
+	call createFlowUsageForMultiConnectionBranch(affectedEObject)
+}
+
+routine createFlowUsageForMultiConnectionBranch(simulink::SingleConnection connection) {
+	match {
+		require absence of sysml::FlowUsage corresponding to connection
+		val outPortUsage = retrieve sysml::PortUsage corresponding to connection.^parent.^from
+		val inPortUsage = retrieve sysml::PortUsage corresponding to connection.^to
+	}
+	create {
+		val flow = new sysml::FlowUsage
+	}
+	update {
+		flow.source += outPortUsage
+		flow.target += inPortUsage
+		val owner = outPortUsage.owningRelationship.owningRelatedElement
+		attachAsMember(owner, flow)
+		addCorrespondenceBetween(connection, flow)
+	}
+}
+// Deletion needs no separate branch handling — deleteFlowUsageForConnection above already looks up by the connection object itself, same for a branch or a top-level SingleConnection.
+// The MultiConnection container itself gets no separate correspondence — its identity is fully realized through its branches' FlowUsages, same reasoning as GotoTagVisibility having no port-level correspondence of its own.
+
+// Rule F — BusSignalMapping <-> FlowUsage, same signal-appears-on-this-port semantic as Rule C. BusSignalMapping isn't a SimulinkElement (no simulinkRef), so the created FlowUsage gets a synthetic declaredName purely so tests can find it by name.
+reaction BusSignalMappingCreated {
+	after element simulink::BusSignalMapping created
+	call createFlowUsageForBusSignalMapping(affectedEObject)
+}
+
+routine createFlowUsageForBusSignalMapping(simulink::BusSignalMapping mapping) {
+	match {
+		require absence of sysml::FlowUsage corresponding to mapping
+		val fromPortUsage = retrieve sysml::PortUsage corresponding to mapping.mappingFrom
+		val toPortUsage = retrieve sysml::PortUsage corresponding to mapping.mappingTo
+	}
+	create {
+		val flow = new sysml::FlowUsage
+	}
+	update {
+		flow.declaredName = mapping.mappingFrom.simulinkRef.name + "_to_" + mapping.mappingTo.simulinkRef.name
+		flow.source += fromPortUsage
+		flow.target += toPortUsage
+		val owner = fromPortUsage.owningRelationship.owningRelatedElement
+		attachAsMember(owner, flow)
+		addCorrespondenceBetween(mapping, flow)
+	}
+}
+
+reaction BusSignalMappingDeleted {
+	after element simulink::BusSignalMapping deleted
+	call deleteFlowUsageForBusSignalMapping(affectedEObject)
+}
+
+routine deleteFlowUsageForBusSignalMapping(simulink::BusSignalMapping mapping) {
+	match {
+		val flow = retrieve sysml::FlowUsage corresponding to mapping
+	}
+	update {
+		removeObject(flow)
+		removeCorrespondenceBetween(mapping, flow)
+	}
+}
+
+// Rule H — Goto/From tag-based virtual wire <-> FlowUsage. A From's gotoBlock link is trusted as-is (already resolved by whatever produced this model via gotoTag/TagVisibility scoping) rather than independently re-derived from tag strings here. Flow direction follows the real signal path: the Goto's own InPort acts as the relay source, the From's own OutPort is the target — the reverse type pattern from Rule C, which is correct for this case, not a mistake. Fan-out (several From blocks sharing one Goto) falls out naturally, since each From triggers its own independent match.
+
+// E18 — From created with a resolved gotoBlock link -> create a FlowUsage from the Goto's InPort to the From's own OutPort. Guarded on gotoBlock !== null since a plain From (no link yet) must not even attempt the match — navigating into a null gotoBlock would throw, not gracefully fail.
+reaction FromLinkedToGotoCreated {
+	after element simulink::From created
+		with affectedEObject.gotoBlock !== null
+	call createFlowUsageForGotoFromLink(affectedEObject)
+}
+
+// mirrors BlockInsertedAsRoot — a root-registered From generates InsertRootEObject, not CreateEObject.
+reaction FromLinkedToGotoInsertedAsRoot {
+	after element simulink::From inserted as root
+		with newValue.gotoBlock !== null
+	call createFlowUsageForGotoFromLink(newValue)
+}
+
+// A port added to a block within the SAME transaction as that block's own root registration never fires its own "created" event (it's swept into the initial root snapshot, not tracked as a separate change) — so the standard construction order is From+gotoBlock first, OutPort added afterward in a separate transaction. That means FromLinkedToGotoCreated/InsertedAsRoot above will usually fire before any OutPort exists yet (the "no match yet" case, gracefully failing via the require absence + null filter().head below) — this reaction re-triggers the match from the port-arrival side once the OutPort actually shows up.
+reaction FromOutPortCreated {
+	after element simulink::OutPort created
+	call retriggerGotoFromLinkIfApplicable(affectedEObject)
+}
+
+routine retriggerGotoFromLinkIfApplicable(simulink::OutPort outPort) {
+	update {
+		if (outPort.container instanceof hu.bme.mit.massif.simulink.From) {
+			val fromBlock = outPort.container as hu.bme.mit.massif.simulink.From
+			if (fromBlock.gotoBlock !== null) {
+				createFlowUsageForGotoFromLink(fromBlock)
+			}
+		}
+	}
+}
+
+// require absence + a null-returning filter().head gracefully fails to match rather than throwing, so a Goto/From with no port yet simply doesn't fire — this is the "no match yet" case.
+routine createFlowUsageForGotoFromLink(simulink::From fromBlock) {
+	match {
+		require absence of sysml::FlowUsage corresponding to fromBlock
+		val gotoInPortUsage = retrieve sysml::PortUsage corresponding to fromBlock.gotoBlock.ports.filter(hu.bme.mit.massif.simulink.InPort).head
+		val fromOutPortUsage = retrieve sysml::PortUsage corresponding to fromBlock.ports.filter(hu.bme.mit.massif.simulink.OutPort).head
+	}
+	create {
+		val flow = new sysml::FlowUsage
+	}
+	update {
+		flow.source += gotoInPortUsage
+		flow.target += fromOutPortUsage
+		val owner = fromOutPortUsage.owningRelationship.owningRelatedElement
+		attachAsMember(owner, flow)
+		addCorrespondenceBetween(fromBlock, flow)
+	}
+}
+
+// E19 — From deleted -> delete the virtual-wire FlowUsage too (its own generic PartUsage is cleaned up separately by the shared BlockDeleted reaction). Known gap: deleting the Goto side instead, while the From remains, does not clean up the resulting orphaned FlowUsage — gotoBlock going null is an EReference change, which this DSL can't react to directly.
+reaction FromDeleted {
+	after element simulink::From deleted
+	call deleteFlowUsageForGotoFromLink(affectedEObject)
+}
+
+routine deleteFlowUsageForGotoFromLink(simulink::From fromBlock) {
+	match {
+		val flow = retrieve sysml::FlowUsage corresponding to fromBlock
+	}
+	update {
+		removeObject(flow)
+		removeCorrespondenceBetween(fromBlock, flow)
+	}
+}
+
+// Rule I — PortBlock family (OutPortBlock/InPortBlock/TriggerBlock/EnableBlock) <-> shares the SAME PortUsage as its wrapped Port, instead of getting its own new PartUsage. A PortBlock is a diagram-only stand-in for the port boundary inside a SubSystem's own internal view — the same SysML-visible interface point as the Port it wraps, not a second one.
+
+// E20 — PortBlock created (wrapping an already-corresponded Port) -> add a second correspondence to the same PortUsage
+reaction PortBlockCreated {
+	after element simulink::PortBlock created
+	call sharePortUsageForPortBlock(affectedEObject)
+}
+
+// mirrors BlockInsertedAsRoot, for the (unusual but possible) case of a PortBlock registered as its own root.
+reaction PortBlockInsertedAsRoot {
+	after element simulink::PortBlock inserted as root
+	call sharePortUsageForPortBlock(newValue)
+}
+
+routine sharePortUsageForPortBlock(simulink::PortBlock portBlock) {
+	match {
+		require absence of sysml::PortUsage corresponding to portBlock
+		val portUsage = retrieve sysml::PortUsage corresponding to portBlock.port
+	}
+	update {
+		addCorrespondenceBetween(portBlock, portUsage)
+	}
+}
+
+// E21 — PortBlock deleted -> remove only the PortBlock's own (shared) correspondence entry. The PortUsage itself is NOT deleted here — it's still owned by the real Port's own lifecycle, cleaned up separately by PortDeleted.
+reaction PortBlockDeleted {
+	after element simulink::PortBlock deleted
+	call unsharePortUsageForPortBlock(affectedEObject)
+}
+
+routine unsharePortUsageForPortBlock(simulink::PortBlock portBlock) {
+	match {
+		val portUsage = retrieve sysml::PortUsage corresponding to portBlock
+	}
+	update {
+		removeCorrespondenceBetween(portBlock, portUsage)
+	}
+}

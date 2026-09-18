@@ -4,9 +4,10 @@ import "https://www.omg.org/spec/SysML/20250201" as sysml
 import "http://hu.bme.mit.massif/simulink/1.0" as simulink
 
 // Change propagation: SysML --> Simulink
-// Existence rules  : E1, E2, E5, E6, E7, E11, E12
-// Property rules   : P1, P3
+// Existence rules  : E1, E2, E5, E6, E7, E11, E12, E15, E16
+// Property rules   : P1, P3, P6
 // Structural rules : S1, S2 (Block <-> SubSystem type migration, folded into E1/E2)
+// Rule E           : AttributeUsage <-> Parameter, name only.
 // See README.md §3.4 for the full rule table this maps onto.
 // Correspondences are created here; SimulinkToSysML.reactions only looks them up.
 
@@ -218,7 +219,30 @@ routine createOutPortForPortUsage(sysml::PortUsage port) {
 	}
 }
 
-// direction = inout is intentionally unhandled — Simulink has no bidirectional Port EClass.
+// direction = inout has no deterministic Simulink target (InPort/OutPort are disjoint EClasses) — resolved interactively instead of silently left unmapped. In automated test/CI runs the configured TestUserInteraction supplies a scripted answer rather than a real prompt; only the genuinely interactive path (VSUMExample, via CliInteractionResultProviderImpl) shows a real dialog.
+reaction InoutPortUsageCreated {
+	after element sysml::PortUsage created
+		with affectedEObject.direction == org.omg.sysml.lang.sysml.FeatureDirectionKind.INOUT
+	call resolveInoutPortUsage(affectedEObject)
+}
+
+routine resolveInoutPortUsage(sysml::PortUsage port) {
+	update {
+		val choice = executionState.userInteractor.getSingleSelectionDialogBuilder()
+			.message("PortUsage '" + port.declaredName + "' has direction=inout, which has no direct Simulink equivalent. How should it be mapped?")
+			.choices(newArrayList("Map as InPort", "Map as OutPort", "Create paired InPort + OutPort", "Skip (leave unmapped)"))
+			.startInteraction()
+		if (choice == 0) {
+			createInPortForPortUsage(port)
+		} else if (choice == 1) {
+			createOutPortForPortUsage(port)
+		} else if (choice == 2) {
+			createInPortForPortUsage(port)
+			createOutPortForPortUsage(port)
+		}
+		// choice == 3 (Skip) falls through to a no-op, same as today's only behavior.
+	}
+}
 
 // E7 — PortUsage deleted -> delete corresponding InPort or OutPort
 reaction PortUsageDeleted {
@@ -281,6 +305,82 @@ routine syncPortUsageName(sysml::PortUsage port) {
 	update {
 		syncInPortName(port)
 		syncOutPortName(port)
+	}
+}
+
+// Rule E — AttributeUsage <-> Parameter. Only name is synced, see SimulinkToSysML.reactions for why value is out of scope.
+
+// E15 — AttributeUsage created (under a PartUsage or a PortUsage) -> create a Parameter on the corresponding Block/Port
+reaction AttributeUsageCreated {
+	after element sysml::AttributeUsage created
+	call createParameterForAttributeUsage(affectedEObject)
+}
+
+routine createParameterForAttributeUsage(sysml::AttributeUsage attr) {
+	update {
+		createParameterForPartAttribute(attr)
+		createParameterForPortAttribute(attr)
+	}
+}
+
+routine createParameterForPartAttribute(sysml::AttributeUsage attr) {
+	match {
+		require absence of simulink::Parameter corresponding to attr
+		val block = retrieve simulink::Block corresponding to attr.owningRelationship.owningRelatedElement
+	}
+	create {
+		val param = new simulink::Parameter
+	}
+	update {
+		param.name = attr.declaredName
+		block.parameters += param
+		addCorrespondenceBetween(attr, param)
+	}
+}
+
+routine createParameterForPortAttribute(sysml::AttributeUsage attr) {
+	match {
+		require absence of simulink::Parameter corresponding to attr
+		val port = retrieve simulink::Port corresponding to attr.owningRelationship.owningRelatedElement
+	}
+	create {
+		val param = new simulink::Parameter
+	}
+	update {
+		param.name = attr.declaredName
+		port.parameters += param
+		addCorrespondenceBetween(attr, param)
+	}
+}
+
+// E16 — AttributeUsage deleted -> delete corresponding Parameter
+reaction AttributeUsageDeleted {
+	after element sysml::AttributeUsage deleted
+	call deleteParameterForAttributeUsage(affectedEObject)
+}
+
+routine deleteParameterForAttributeUsage(sysml::AttributeUsage attr) {
+	match {
+		val param = retrieve simulink::Parameter corresponding to attr
+	}
+	update {
+		removeObject(param)
+		removeCorrespondenceBetween(attr, param)
+	}
+}
+
+// P6 — AttributeUsage.declaredName changed -> update Parameter.name
+reaction AttributeUsageRenamed {
+	after attribute replaced at sysml::AttributeUsage[declaredName]
+	call syncAttributeUsageNameToParameter(affectedEObject)
+}
+
+routine syncAttributeUsageNameToParameter(sysml::AttributeUsage attr) {
+	match {
+		val param = retrieve simulink::Parameter corresponding to attr
+	}
+	update {
+		param.name = attr.declaredName
 	}
 }
 
