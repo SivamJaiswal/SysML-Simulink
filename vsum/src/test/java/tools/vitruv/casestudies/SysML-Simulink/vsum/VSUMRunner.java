@@ -353,7 +353,7 @@ public class VSUMRunner {
 		});
 	}
 
-	// shared by every Block-subtype-as-its-own-root helper below (BusSelector, BusCreator, Goto, From, GotoTagVisibility, ModelReference) — same shape as addBlock, just a different concrete factory.
+	// shared by every Block-subtype-as-root helper below — same shape as addBlock, different factory.
 	private String addRootBlockLike(VirtualModel vsum, Path filePath, String name, Supplier<? extends Block> factory) {
 		CommittableView view = getDefaultView(vsum, List.of(Block.class)).withChangeRecordingTrait();
 		modifyView(view, v -> {
@@ -388,7 +388,7 @@ public class VSUMRunner {
 		return addRootBlockLike(vsum, filePath, name, SimulinkFactory.eINSTANCE::createModelReference);
 	}
 
-	// shared by every PortBlock-subtype helper below — wraps an already-existing Port (found within the same root as subsystemName) and nests the PortBlock itself as one of the subsystem's subBlocks.
+	// shared by every PortBlock-subtype helper below — wraps an existing Port and nests the PortBlock as one of the subsystem's subBlocks.
 	private void addPortBlockLike(VirtualModel vsum, String subsystemName, String portBlockName, String wrappedPortName, Supplier<? extends PortBlock> factory) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
@@ -417,11 +417,7 @@ public class VSUMRunner {
 		addPortBlockLike(vsum, subsystemName, portBlockName, wrappedPortName, SimulinkFactory.eINSTANCE::createEnableBlock);
 	}
 
-	// gotoBlock must be set before the From is rooted, in the same transaction — the FromLinkedToGotoCreated/
-	// InsertedAsRoot reactions fire once, on creation, and can't be retried later since gotoBlock is a plain
-	// EReference (no attribute-replaced event this DSL can react to). The OutPort is added separately afterward,
-	// via the existing addOutPort helper — adding it here instead, before registerRoot, would silently skip its
-	// own "created" event (see the reaction file's comment on FromOutPortCreated).
+	// gotoBlock must be set before the From is rooted, in the same transaction — it can't be set later, gotoBlock is an unreactable EReference. OutPort is added separately afterward via addOutPort.
 	public String addFromLinkedToGoto(VirtualModel vsum, Path filePath, String fromName, String gotoName) {
 		CommittableView view = getDefaultView(vsum, List.of(Block.class)).withChangeRecordingTrait();
 		modifyView(view, v -> {
@@ -471,7 +467,7 @@ public class VSUMRunner {
 		});
 	}
 
-	// searches every registered Block root, not just the first — a Block/From/Goto etc. registered as its own separate root (rather than nested under a shared root) is otherwise unreachable, same fix as findAnywhereInSysml on the SysML side.
+	// searches every registered Block root, not just the first — same fix as findAnywhereInSysml on the SysML side.
 	private <T extends EObject> T findAnywhereInSimulink(View v, Class<T> type, String name) {
 		for (EObject root : v.getRootObjects()) {
 			T found = findByNameAndType(root, type, name);
@@ -517,7 +513,7 @@ public class VSUMRunner {
 		return null;
 	}
 
-	// counts every sysml object of the given type with the given name — used to assert "exactly one, no duplicates" (e.g. Part 6's PortBlock-vs-Port duplicate-PartUsage check).
+	// counts every sysml object of the given type and name — used to assert exactly one exists, no duplicates.
 	public <T extends EObject> int countMatchingInSysml(VirtualModel vsum, String name, Class<T> type) {
 		int count = 0;
 		for (EObject root : getSysmlView(vsum).getRootObjects()) {

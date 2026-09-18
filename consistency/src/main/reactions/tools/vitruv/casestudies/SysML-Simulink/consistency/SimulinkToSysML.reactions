@@ -9,12 +9,12 @@ import "http://hu.bme.mit.massif/simulink/1.0" as simulink
 // Structural rules : S3 (Block re-parented -> PartUsage re-parented)
 // Rule D           : requirement/function traceability cascade, Simulink -> SysML only.
 // Rule E           : Parameter <-> AttributeUsage, name only.
-// Rule F           : BusSignalMapping <-> FlowUsage, Simulink -> SysML only (no SysML-side BusSignalMapping concept to originate the reverse direction from).
-// Rule G           : every other real Block subtype (BusSelector, BusCreator, Goto, From, GotoTagVisibility, ModelReference) gets a generic PartUsage via E3, deliberately guarded, not accidental. PortBlock family is excluded — see Rule I.
-// Rule H           : Goto/From tag-based virtual wire <-> FlowUsage, Simulink -> SysML only (no SysML-side Goto/From concept).
-// Rule I           : PortBlock family (OutPortBlock/InPortBlock/TriggerBlock/EnableBlock) shares its wrapped Port's PortUsage instead of getting a new PartUsage.
-// SimulinkModel <-> the SysML root Package has no correspondence — deliberately, not by oversight. See VSUMRunner.registerRootObjects for the full reasoning: no derivable relationship between two independently-created roots, and no reaction would ever need to query it since all real propagation happens at the contained-element level.
-// LibraryLinkReference/IdentifierReference/SimulinkReference likewise get no correspondence of their own — they're the identity/name-carriers embedded in whatever SimulinkElement already has its own correspondence, and their name field is exactly what drives the existing P-rules' name sync. Their contribution is carried by the parent's correspondence, not missing.
+// Rule F           : BusSignalMapping <-> FlowUsage, Simulink -> SysML only.
+// Rule G           : BusSelector/BusCreator/Goto/From/GotoTagVisibility/ModelReference get a generic PartUsage via E3. PortBlock excluded — see Rule I.
+// Rule H           : Goto/From tag-based virtual wire <-> FlowUsage, Simulink -> SysML only.
+// Rule I           : PortBlock family shares its wrapped Port's PortUsage instead of a new PartUsage.
+// SimulinkModel <-> Package has no correspondence — see VSUMRunner.registerRootObjects for why.
+// LibraryLinkReference/IdentifierReference/SimulinkReference carry no correspondence of their own — identity data for whatever element already has one.
 // See README.md §3.4 for the full rule table this maps onto.
 
 // NOTE — segment name must start with lowercase (Reactions DSL requirement)
@@ -39,7 +39,7 @@ routine attachAsMember(sysml::Element parent, sysml::Element member) {
 
 // Rule A — Block <-> PartUsage / SubSystem <-> PartUsage
 
-// E3 — Block/SubSystem created (no corresponding PartUsage) -> create a PartUsage and trigger Rule D's cascade. Also deliberately covers every other Block subtype that represents a real architecture element an engineer would see: BusSelector/BusCreator (bus routing blocks), Goto/From/GotoTagVisibility (tag-based signal routing), ModelReference (external model reference) — all get a generic PartUsage the same way. PortBlock subtypes are excluded here — see Rule G, they share their wrapped Port's PortUsage instead of getting a new PartUsage.
+// E3 — Block/SubSystem created -> create a PartUsage, trigger Rule D's cascade. Also covers Rule G's Block subtypes generically; PortBlock excluded (Rule I).
 reaction BlockCreated {
 	after element simulink::Block created
 		with !(affectedEObject instanceof hu.bme.mit.massif.simulink.PortBlock)
@@ -117,7 +117,7 @@ routine createFunctionAndRequirementForPartUsage(sysml::PartUsage part) {
 	}
 }
 
-// E4 — Block/SubSystem deleted -> delete corresponding PartUsage and its Rule D siblings, if any. PortBlock excluded, same reasoning as BlockCreated above.
+// E4 — Block/SubSystem deleted -> delete corresponding PartUsage and its Rule D siblings. PortBlock excluded, same as BlockCreated.
 reaction BlockDeleted {
 	after element simulink::Block deleted
 		with !(affectedEObject instanceof hu.bme.mit.massif.simulink.PortBlock)
@@ -144,7 +144,7 @@ routine deletePartUsageForBlock(simulink::Block block) {
 	}
 }
 
-// P2 — Block.simulinkRef.name changed -> update PartUsage.declaredName, cascading the rename to the Rule D siblings too. PortBlock excluded, same reasoning as BlockCreated above.
+// P2 — Block.simulinkRef.name changed -> update PartUsage.declaredName, cascading to the Rule D siblings too. PortBlock excluded, same as BlockCreated.
 reaction BlockRenamed {
 	after attribute replaced at simulink::IdentifierReference[name]
 		// IdentifierReference.element has no eOpposite, so it's unreliable — eContainer() is EMF's built-in and always correct here.
@@ -247,7 +247,7 @@ routine createPortUsageForOutPort(simulink::OutPort outPort) {
 	}
 }
 
-// Trigger/Enable extend InPort and State extends OutPort, so InPortCreated/OutPortCreated already cover them (same for PortDeleted/PortRenamed below, both matched on the abstract Port supertype) — see SimulinkToSysMLExistenceTest for coverage.
+// Trigger/Enable/State extend InPort/OutPort, so InPortCreated/OutPortCreated/PortDeleted/PortRenamed already cover them via the abstract Port supertype.
 
 // E10 — InPort or OutPort deleted -> delete corresponding PortUsage
 reaction PortDeleted {
@@ -281,7 +281,7 @@ routine syncPortNameToPortUsage(simulink::IdentifierReference ref) {
 	}
 }
 
-// Rule E — Parameter <-> AttributeUsage. Only name is synced, same scope as every other rule here — Parameter.value has no non-derived SysML target without modeling a full KerML FeatureValue expression tree.
+// Rule E — Parameter <-> AttributeUsage, name only — Parameter.value has no SysML target without a full KerML FeatureValue tree.
 
 // E15 — Parameter created (on a Block or a Port) -> create an AttributeUsage under the corresponding PartUsage/PortUsage
 reaction ParameterCreated {
@@ -342,7 +342,7 @@ routine deleteAttributeUsageForParameter(simulink::Parameter param) {
 	}
 }
 
-// P6 — Parameter.name changed -> update AttributeUsage.declaredName. Parameter isn't a SimulinkElement, so name is a plain attribute, no IdentifierReference indirection needed.
+// P6 — Parameter.name changed -> update AttributeUsage.declaredName. Parameter isn't a SimulinkElement, name is a plain attribute here.
 reaction ParameterRenamed {
 	after attribute replaced at simulink::Parameter[name]
 	call syncParameterNameToAttributeUsage(affectedEObject)
@@ -402,7 +402,7 @@ routine deleteFlowUsageForConnection(simulink::SingleConnection connection) {
 	}
 }
 
-// E17 — SingleConnection created as a MultiConnection branch -> create a FlowUsage too. A branch's own `from` is unset (only the OutPort.connection eOpposite populates the top MultiConnection's `from`), so the source is resolved via the parent instead.
+// E17 — SingleConnection created as a MultiConnection branch -> create a FlowUsage too, source resolved via the parent (a branch's own `from` is unset).
 reaction MultiConnectionBranchCreated {
 	after element simulink::SingleConnection created
 		with affectedEObject.^parent !== null
@@ -426,10 +426,10 @@ routine createFlowUsageForMultiConnectionBranch(simulink::SingleConnection conne
 		addCorrespondenceBetween(connection, flow)
 	}
 }
-// Deletion needs no separate branch handling — deleteFlowUsageForConnection above already looks up by the connection object itself, same for a branch or a top-level SingleConnection.
-// The MultiConnection container itself gets no separate correspondence — its identity is fully realized through its branches' FlowUsages, same reasoning as GotoTagVisibility having no port-level correspondence of its own.
+// Deletion needs no branch-specific handling — deleteFlowUsageForConnection already looks up by the connection object itself.
+// MultiConnection itself gets no correspondence — its identity is realized through its branches' FlowUsages.
 
-// Rule F — BusSignalMapping <-> FlowUsage, same signal-appears-on-this-port semantic as Rule C. BusSignalMapping isn't a SimulinkElement (no simulinkRef), so the created FlowUsage gets a synthetic declaredName purely so tests can find it by name.
+// Rule F — BusSignalMapping <-> FlowUsage, same semantic as Rule C. Gets a synthetic declaredName since it has no simulinkRef of its own.
 reaction BusSignalMappingCreated {
 	after element simulink::BusSignalMapping created
 	call createFlowUsageForBusSignalMapping(affectedEObject)
@@ -469,9 +469,9 @@ routine deleteFlowUsageForBusSignalMapping(simulink::BusSignalMapping mapping) {
 	}
 }
 
-// Rule H — Goto/From tag-based virtual wire <-> FlowUsage. A From's gotoBlock link is trusted as-is (already resolved by whatever produced this model via gotoTag/TagVisibility scoping) rather than independently re-derived from tag strings here. Flow direction follows the real signal path: the Goto's own InPort acts as the relay source, the From's own OutPort is the target — the reverse type pattern from Rule C, which is correct for this case, not a mistake. Fan-out (several From blocks sharing one Goto) falls out naturally, since each From triggers its own independent match.
+// Rule H — Goto/From virtual wire <-> FlowUsage, source the Goto's InPort, target the From's OutPort (reversed from Rule C). Trusts the existing gotoBlock link rather than re-deriving it from tags.
 
-// E18 — From created with a resolved gotoBlock link -> create a FlowUsage from the Goto's InPort to the From's own OutPort. Guarded on gotoBlock !== null since a plain From (no link yet) must not even attempt the match — navigating into a null gotoBlock would throw, not gracefully fail.
+// E18 — From created with a resolved gotoBlock -> create a FlowUsage from the Goto's InPort to the From's OutPort. Guarded on gotoBlock !== null to avoid a null-navigation throw.
 reaction FromLinkedToGotoCreated {
 	after element simulink::From created
 		with affectedEObject.gotoBlock !== null
@@ -485,7 +485,7 @@ reaction FromLinkedToGotoInsertedAsRoot {
 	call createFlowUsageForGotoFromLink(newValue)
 }
 
-// A port added to a block within the SAME transaction as that block's own root registration never fires its own "created" event (it's swept into the initial root snapshot, not tracked as a separate change) — so the standard construction order is From+gotoBlock first, OutPort added afterward in a separate transaction. That means FromLinkedToGotoCreated/InsertedAsRoot above will usually fire before any OutPort exists yet (the "no match yet" case, gracefully failing via the require absence + null filter().head below) — this reaction re-triggers the match from the port-arrival side once the OutPort actually shows up.
+// A port added in the same transaction as its block's own root registration never fires its own created event, so the OutPort is added afterward, separately — this reaction re-triggers the match once it shows up.
 reaction FromOutPortCreated {
 	after element simulink::OutPort created
 	call retriggerGotoFromLinkIfApplicable(affectedEObject)
@@ -502,7 +502,7 @@ routine retriggerGotoFromLinkIfApplicable(simulink::OutPort outPort) {
 	}
 }
 
-// require absence + a null-returning filter().head gracefully fails to match rather than throwing, so a Goto/From with no port yet simply doesn't fire — this is the "no match yet" case.
+// require absence + a null filter().head gracefully skips rather than throwing, so a Goto/From with no port yet just doesn't fire.
 routine createFlowUsageForGotoFromLink(simulink::From fromBlock) {
 	match {
 		require absence of sysml::FlowUsage corresponding to fromBlock
@@ -521,7 +521,7 @@ routine createFlowUsageForGotoFromLink(simulink::From fromBlock) {
 	}
 }
 
-// E19 — From deleted -> delete the virtual-wire FlowUsage too (its own generic PartUsage is cleaned up separately by the shared BlockDeleted reaction). Known gap: deleting the Goto side instead, while the From remains, does not clean up the resulting orphaned FlowUsage — gotoBlock going null is an EReference change, which this DSL can't react to directly.
+// E19 — From deleted -> delete the virtual-wire FlowUsage too. Known gap: deleting the Goto side instead leaves it orphaned (gotoBlock going null is an unreactable EReference change).
 reaction FromDeleted {
 	after element simulink::From deleted
 	call deleteFlowUsageForGotoFromLink(affectedEObject)
@@ -537,7 +537,7 @@ routine deleteFlowUsageForGotoFromLink(simulink::From fromBlock) {
 	}
 }
 
-// Rule I — PortBlock family (OutPortBlock/InPortBlock/TriggerBlock/EnableBlock) <-> shares the SAME PortUsage as its wrapped Port, instead of getting its own new PartUsage. A PortBlock is a diagram-only stand-in for the port boundary inside a SubSystem's own internal view — the same SysML-visible interface point as the Port it wraps, not a second one.
+// Rule I — PortBlock family shares its wrapped Port's PortUsage instead of a new PartUsage — same SysML-visible interface point, not a second one.
 
 // E20 — PortBlock created (wrapping an already-corresponded Port) -> add a second correspondence to the same PortUsage
 reaction PortBlockCreated {
@@ -561,7 +561,7 @@ routine sharePortUsageForPortBlock(simulink::PortBlock portBlock) {
 	}
 }
 
-// E21 — PortBlock deleted -> remove only the PortBlock's own (shared) correspondence entry. The PortUsage itself is NOT deleted here — it's still owned by the real Port's own lifecycle, cleaned up separately by PortDeleted.
+// E21 — PortBlock deleted -> remove only its own shared correspondence entry. The PortUsage itself stays, owned by the real Port's lifecycle (PortDeleted).
 reaction PortBlockDeleted {
 	after element simulink::PortBlock deleted
 	call unsharePortUsageForPortBlock(affectedEObject)

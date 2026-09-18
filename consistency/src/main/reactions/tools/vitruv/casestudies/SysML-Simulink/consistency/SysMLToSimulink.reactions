@@ -219,7 +219,7 @@ routine createOutPortForPortUsage(sysml::PortUsage port) {
 	}
 }
 
-// direction = inout has no deterministic Simulink target (InPort/OutPort are disjoint EClasses) — resolved interactively instead of silently left unmapped. In automated test/CI runs the configured TestUserInteraction supplies a scripted answer rather than a real prompt; only the genuinely interactive path (VSUMExample, via CliInteractionResultProviderImpl) shows a real dialog.
+// direction = inout has no deterministic target — resolved interactively (TestUserInteraction scripts it in tests, CliInteractionResultProviderImpl prompts for real in VSUMExample).
 reaction InoutPortUsageCreated {
 	after element sysml::PortUsage created
 		with affectedEObject.direction == org.omg.sysml.lang.sysml.FeatureDirectionKind.INOUT
