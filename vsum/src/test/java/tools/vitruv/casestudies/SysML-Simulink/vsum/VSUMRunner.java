@@ -325,6 +325,14 @@ public class VSUMRunner {
 		return null;
 	}
 
+	private <T> T findPortAcrossRoots(View v, Class<T> type, String name) {
+		for (EObject root : v.getRootObjects(Block.class)) {
+			T found = findByNameAndType(root, type, name);
+			if (found != null) return found;
+		}
+		return null;
+	}
+
 	public void addSingleConnection(VirtualModel vsum, String outPortName, String inPortName) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
@@ -349,6 +357,17 @@ public class VSUMRunner {
 				SingleConnection branch = SimulinkFactory.eINSTANCE.createSingleConnection();
 				branch.setTo(inPort);
 				multi.getConnections().add(branch);
+			}
+		});
+	}
+
+	// MultiConnection has no name of its own — found via the OutPort it's attached to instead.
+	public void deleteMultiConnection(VirtualModel vsum, String outPortName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			OutPort outPort = findByNameAndType(getSimulinkRoot(v), OutPort.class, outPortName);
+			if (outPort != null && outPort.getConnection() != null) {
+				EcoreUtil.delete(outPort.getConnection(), true);
 			}
 		});
 	}
@@ -433,15 +452,44 @@ public class VSUMRunner {
 	public String addBusSignalMapping(VirtualModel vsum, String selectorName, String mappingFromPortName, String mappingToPortName) {
 		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
 		modifyView(view, v -> {
-			BusSelector selector = (BusSelector) findByNameAndType(getSimulinkRoot(v), Block.class, selectorName);
-			OutPort from = findByNameAndType(getSimulinkRoot(v), OutPort.class, mappingFromPortName);
-			OutPort to = findByNameAndType(getSimulinkRoot(v), OutPort.class, mappingToPortName);
+			BusSelector selector = (BusSelector) findBlockAcrossRoots(v, selectorName);
+			OutPort from = findPortAcrossRoots(v, OutPort.class, mappingFromPortName);
+			OutPort to = findPortAcrossRoots(v, OutPort.class, mappingToPortName);
 			BusSignalMapping mapping = SimulinkFactory.eINSTANCE.createBusSignalMapping();
 			mapping.setMappingFrom(from);
 			mapping.setMappingTo(to);
 			selector.getMappings().add(mapping);
 		});
 		return mappingFromPortName + "_to_" + mappingToPortName;
+	}
+
+	// BusSignalMapping has no name of its own, so it can't go through deleteFromSimulink — found by searching every BusSelector root for the mapping with matching port names.
+	public void deleteBusSignalMapping(VirtualModel vsum, String mappingFromPortName, String mappingToPortName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			for (EObject root : v.getRootObjects(Block.class)) {
+				BusSignalMapping mapping = findMappingByPorts(root, mappingFromPortName, mappingToPortName);
+				if (mapping != null) {
+					EcoreUtil.delete(mapping, true);
+					return;
+				}
+			}
+		});
+	}
+
+	private BusSignalMapping findMappingByPorts(EObject root, String fromName, String toName) {
+		if (root instanceof BusSelector selector) {
+			for (BusSignalMapping m : selector.getMappings()) {
+				if (fromName.equals(effectiveName(m.getMappingFrom())) && toName.equals(effectiveName(m.getMappingTo()))) {
+					return m;
+				}
+			}
+		}
+		for (EObject child : root.eContents()) {
+			BusSignalMapping found = findMappingByPorts(child, fromName, toName);
+			if (found != null) return found;
+		}
+		return null;
 	}
 
 	public void renameInSimulink(VirtualModel vsum, String oldName, Class<? extends EObject> type, String newName) {
@@ -529,6 +577,26 @@ public class VSUMRunner {
 		int count = (type.isInstance(root) && name.equals(effectiveName(root))) ? 1 : 0;
 		for (EObject child : root.eContents()) {
 			count += countByNameAndType(child, type, name);
+		}
+		return count;
+	}
+
+	// counts every sysml object of the given type, regardless of name — used for model-wide completeness checks (C3 etc.).
+	public <T extends EObject> int countAllInSysml(VirtualModel vsum, Class<T> type) {
+		int count = 0;
+		for (EObject root : getSysmlView(vsum).getRootObjects()) {
+			count += countByType(root, type);
+		}
+		for (EObject root : getDefaultView(vsum, List.of(PartUsage.class, ActionUsage.class, RequirementUsage.class)).getRootObjects()) {
+			count += countByType(root, type);
+		}
+		return count;
+	}
+
+	private <T> int countByType(EObject root, Class<T> type) {
+		int count = type.isInstance(root) ? 1 : 0;
+		for (EObject child : root.eContents()) {
+			count += countByType(child, type);
 		}
 		return count;
 	}

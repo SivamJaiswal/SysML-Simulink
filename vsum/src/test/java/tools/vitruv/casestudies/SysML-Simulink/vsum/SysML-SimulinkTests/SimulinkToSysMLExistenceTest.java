@@ -15,6 +15,8 @@ import org.omg.sysml.lang.sysml.FlowUsage;
 import hu.bme.mit.massif.simulink.Block;
 import hu.bme.mit.massif.simulink.OutPort;
 import hu.bme.mit.massif.simulink.From;
+import hu.bme.mit.massif.simulink.Goto;
+import hu.bme.mit.massif.simulink.OutPortBlock;
 
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.xmi.impl.XMIResourceFactoryImpl;
@@ -102,6 +104,8 @@ public class SimulinkToSysMLExistenceTest {
 
         assertNotNull(util.getCorrespondingInSysml(vsum, "SignalSplitter2", PartUsage.class));
         assertEquals(1, util.countMatchingInSysml(vsum, "SignalSplitter2", PartUsage.class));
+        assertNull(util.getCorrespondingInSysml(vsum, "processSignalSplitter2", ActionUsage.class),
+                "Rule G blocks must not trigger Rule D's cascade — they're plumbing, not architecture elements needing a requirement/function");
     }
 
     @Test
@@ -222,6 +226,23 @@ public class SimulinkToSysMLExistenceTest {
         assertNull(util.getFlowUsageBetween(vsum, "cleanupIn", "cleanupOut"), "FlowUsage must be removed when the From is deleted");
     }
 
+    @Test
+    @DisplayName("E19 note – Goto deleted → the linked From's FlowUsage removed too")
+    void e19note_gotoDeleted_flowUsageRemoved(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addGoto(vsum, tempDir, "CleanupTag2");
+        util.addInPort(vsum, "CleanupTag2", "cleanupIn2");
+        util.addFromLinkedToGoto(vsum, tempDir, "CleanupReceiver2", "CleanupTag2");
+        util.addOutPort(vsum, "CleanupReceiver2", "cleanupOut2");
+        assertNotNull(util.getFlowUsageBetween(vsum, "cleanupIn2", "cleanupOut2"));
+
+        util.deleteFromSimulink(vsum, "CleanupTag2", Goto.class);
+
+        assertNull(util.getFlowUsageBetween(vsum, "cleanupIn2", "cleanupOut2"), "deleting the Goto must cascade-remove the linked From's FlowUsage too");
+    }
+
     // Rule I — PortBlock family shares its wrapped Port's PortUsage, no duplicate PartUsage
 
     @Test
@@ -286,6 +307,24 @@ public class SimulinkToSysMLExistenceTest {
 
         assertEquals(1, util.countMatchingInSysml(vsum, "enablePort4", PortUsage.class), "the PortBlock must not create a duplicate PortUsage");
         assertNull(util.getCorrespondingInSysml(vsum, "EnableDiagramBlock", PartUsage.class), "the PortBlock itself must not get its own PartUsage");
+    }
+
+    @Test
+    @DisplayName("E21 – PortBlock deleted → its own correspondence removed, wrapped Port's PortUsage survives")
+    void e21_portBlockDeleted_onlyOwnCorrespondenceRemoved(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addBlock(vsum, tempDir, "Container5", true);
+        util.addOutPort(vsum, "Container5", "boundaryOut5");
+        util.addOutPortBlock(vsum, "Container5", "OutportDiagramBlock5", "boundaryOut5");
+        assertEquals(1, util.countMatchingInSysml(vsum, "boundaryOut5", PortUsage.class));
+
+        util.deleteFromSimulink(vsum, "OutportDiagramBlock5", OutPortBlock.class);
+
+        assertEquals(1, util.countMatchingInSysml(vsum, "boundaryOut5", PortUsage.class),
+                "the PortUsage must survive — it's owned by the real Port, not the PortBlock");
+        assertNotNull(util.getCorrespondingInSysml(vsum, "boundaryOut5", PortUsage.class));
     }
 
     // E8/E9/E10 — InPort/OutPort <-> PortUsage
@@ -434,6 +473,28 @@ public class SimulinkToSysMLExistenceTest {
         assertNotNull(flow2, "a FlowUsage must exist for the second MultiConnection branch");
     }
 
+    @Test
+    @DisplayName("E17 note – MultiConnection itself deleted → every branch's FlowUsage cascades away")
+    void e17note_multiConnectionDeleted_allBranchFlowUsagesRemoved(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addBlock(vsum, tempDir, "FanoutSender2", true);
+        util.addOutPort(vsum, "FanoutSender2", "outMulti2");
+        util.addSubBlock(vsum, "FanoutSender2", "Receiver1b", false);
+        util.addInPort(vsum, "Receiver1b", "in1b");
+        util.addSubBlock(vsum, "FanoutSender2", "Receiver2b", false);
+        util.addInPort(vsum, "Receiver2b", "in2b");
+        util.addMultiConnection(vsum, "outMulti2", "in1b", "in2b");
+        assertNotNull(util.getFlowUsageBetween(vsum, "outMulti2", "in1b"));
+        assertNotNull(util.getFlowUsageBetween(vsum, "outMulti2", "in2b"));
+
+        util.deleteMultiConnection(vsum, "outMulti2");
+
+        assertNull(util.getFlowUsageBetween(vsum, "outMulti2", "in1b"), "deleting the MultiConnection must cascade-remove the first branch's FlowUsage too");
+        assertNull(util.getFlowUsageBetween(vsum, "outMulti2", "in2b"), "deleting the MultiConnection must cascade-remove the second branch's FlowUsage too");
+    }
+
     // Rule F — BusSignalMapping <-> FlowUsage
 
     @Test
@@ -450,6 +511,23 @@ public class SimulinkToSysMLExistenceTest {
 
         FlowUsage flow = util.getFlowUsageBetween(vsum, "incomingBusOut", "selectedOut");
         assertNotNull(flow, "a FlowUsage must exist for the BusSignalMapping");
+    }
+
+    @Test
+    @DisplayName("Rule F – BusSignalMapping deleted → corresponding FlowUsage removed")
+    void ruleF_busSignalMappingDeleted_flowUsageRemoved(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addBusSelector(vsum, tempDir, "SignalSplitter2");
+        util.addOutPort(vsum, "SignalSplitter2", "busOut2");
+        util.addOutPort(vsum, "SignalSplitter2", "selectedOut2");
+        util.addBusSignalMapping(vsum, "SignalSplitter2", "busOut2", "selectedOut2");
+        assertNotNull(util.getFlowUsageBetween(vsum, "busOut2", "selectedOut2"));
+
+        util.deleteBusSignalMapping(vsum, "busOut2", "selectedOut2");
+
+        assertNull(util.getFlowUsageBetween(vsum, "busOut2", "selectedOut2"), "FlowUsage must be removed when the BusSignalMapping is deleted");
     }
 
     // E15/E16 — Parameter <-> AttributeUsage

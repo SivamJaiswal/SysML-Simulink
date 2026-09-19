@@ -362,6 +362,8 @@ This rule is not a metaclass-to-metaclass correspondence like A–C; it reproduc
 
 **Omission, honestly flagged:** the cascade creates three *sibling* elements with consistent names, but does **not** create the formal `SatisfyRequirementUsage` / `PerformActionUsage` / `AllocationUsage` relationship objects that would properly wire Requirement → Function → Architecture together in SysML's traceability model. Grycz et al. flag exactly this same gap themselves (§5.2, discussing Figure 6): *"a further refining and detailing could be accomplished ... additional relationships such as «satisfy», «allocate», and trace links between requirements, functions, and technical architecture elements can be established"* — i.e. the paper's own case study also stops at generating the three elements and leaves the relationship wiring as manual/future work. This project does the same, deliberately, rather than inventing an under-specified auto-wiring policy.
 
+**Scope guard:** the cascade fires only for real architecture blocks — a plain `Block`/`SubSystem` with no corresponding `PartUsage` yet. Rule G's block family (`BusSelector`/`BusCreator`/`Goto`/`From`/`GotoTagVisibility`/`ModelReference`) shares the same underlying creation routine (they're `Block` subtypes too, matched by the same unguarded `E3`), but they're diagram plumbing, not architecture elements a requirement or function would trace to — so the cascade is explicitly excluded for anything that's a `BusSpecification`, `VirtualBlock`, or `ModelReference`. `C6` (§3.4) checks this invariant across the whole block family at once.
+
 #### Rule E — AttributeUsage ↔ Parameter
 
 - SysML: `AttributeUsage`, nested under a `PartUsage` or a `PortUsage`
@@ -385,6 +387,8 @@ This rule is not a metaclass-to-metaclass correspondence like A–C; it reproduc
 
 The class-specific semantics beyond existence and name are not modeled: `BusSelector`/`BusCreator`'s internal bus routing is Rule F's job (at the signal-mapping level, not the block level); `Goto`/`From`'s tag-based link is Rule H's job; `GotoTagVisibility`'s scoping and `ModelReference`'s external-model link have no further propagation.
 
+**`ModelReference.referencedModel` is deliberately unwired, not by oversight.** It's `changeable="false"` and computed via a VIATRA query-based feature (`patternFQN = hu.bme.mit.massif.models.simulink.derived.referencedModel`), the same derived-feature pattern already excluded elsewhere in this project (see `SimulinkElement.name` in §2.3). A reaction can't listen on or set a derived reference, and even if it could, the target — another whole `SimulinkModel` root — has no correspondence of its own to navigate to (see the `SimulinkModel`↔`Package` note above), so there's no clean SysML-side object to point at anyway. `ModelReference` still gets its own generic `PartUsage` like every other Rule G block; only the nested `referencedModel` link is out of scope.
+
 #### Rule H — Goto/From tag-based virtual wire → FlowUsage (Simulink → SysML only)
 
 Simulink's `Goto`/`From` blocks pass a signal without an explicit wire — `From.gotoBlock` (eOpposite `Goto.fromBlocks`) is the resolved link, presumably established by whatever produced the model via `gotoTag`/`TagVisibility` matching. This rule trusts that link as-is rather than independently re-deriving it from tag strings, and models it as a `FlowUsage` even though no `Connection` object backs it:
@@ -396,7 +400,7 @@ Simulink's `Goto`/`From` blocks pass a signal without an explicit wire — `From
 
 Flow direction follows the real signal path (Goto receives, From re-emits) — source is an `in`-directioned `PortUsage` and target is `out`-directioned, the reverse type pattern from Rule C. That's correct for this case, not a mistake. Fan-out (several `From` blocks sharing one `Goto`) falls out naturally, since each `From` triggers its own independent match.
 
-**Known gap, honestly flagged:** deleting the `Goto` side while a `From` still references it does not clean up the resulting orphaned `FlowUsage` — `gotoBlock` going `null` is an `EReference` change, which the Reactions DSL used here can only react to via `EAttribute`-level events, not `EReference`-level ones (see §1.3/§2.3 for the same constraint elsewhere).
+Deleting the `Goto` side is covered too: `gotoBlock` going `null` is itself an unreactable `EReference` change (the DSL only exposes `EAttribute`-level replace events, see §1.3/§2.3), so this rule doesn't react to that attribute directly — instead it reacts to the structural consequence, `From removed from Goto[fromBlocks]`, which fires once per linked `From` as the eOpposite is severed and still carries a live reference to the `From` being detached, in time to remove its `FlowUsage` before the correspondence goes stale.
 
 #### Rule I — PortBlock family → shares its wrapped Port's PortUsage, not a new PartUsage (Simulink → SysML only)
 
@@ -473,7 +477,7 @@ Rules are grouped into four categories: **Existence (E)**, **Property (P)**, **S
 | E20 | Simulink `PortBlock` created (wrapping an already-corresponded `Port`) | add a second correspondence to the same `PortUsage` (Rule I) |
 | E21 | Simulink `PortBlock` deleted | remove only the `PortBlock`'s own correspondence entry, not the shared `PortUsage` (Rule I) |
 
-`BusSelector`/`BusCreator`/`Goto`/`From`/`GotoTagVisibility`/`ModelReference` creation/deletion (Rule G) reuse E3/E4 directly — no new rule IDs, just additional guarded matches on the same reactions. `BusSignalMapping` creation/deletion (Rule F) similarly reuses the same create/delete shape as E13/E14 without a new ID, since it's the same target class (`FlowUsage`).
+`BusSelector`/`BusCreator`/`Goto`/`From`/`GotoTagVisibility`/`ModelReference` creation/deletion (Rule G) reuse E3/E4 directly — no new rule IDs, just additional guarded matches on the same reactions. `BusSignalMapping` creation/deletion (Rule F) similarly reuses the same create/delete shape as E13/E14 without a new ID, since it's the same target class (`FlowUsage`). Deleting a `Goto` (rather than the `From`) reuses E19's own cleanup routine too — reached via `From removed from Goto[fromBlocks]` instead of `From deleted`, see the Rule H note in §3.2.
 
 #### Property Rules — attribute value changes
 
@@ -502,8 +506,11 @@ Rules are grouped into four categories: **Existence (E)**, **Property (P)**, **S
 | C2 | Every `PortUsage` with `direction ∈ {in, out}` has a corresponding `InPort`/`OutPort`/`Trigger`/`Enable`/`State`, and vice versa |
 | C3 | Every 2-ended `FlowUsage` has a corresponding `SingleConnection` (or `MultiConnection` branch, or `BusSignalMapping`, or Goto/From link), and vice versa |
 | C4 | Every SysML `PartUsage` created via Rule D's cascade has exactly one sibling `ActionUsage` and one sibling `RequirementUsage` with names consistent with `declaredName` |
+| C5 | Every Simulink `Parameter` (on a `Block` or a `Port`) has exactly one corresponding `AttributeUsage`, and vice versa |
+| C6 | Every Rule G block-family instance has exactly one `PartUsage`, and none of them trigger Rule D's cascade (no stray `ActionUsage`/`RequirementUsage`) |
+| C7 | Rule I's `PortBlock` family never adds a `PartUsage` of its own, and never doubles up the wrapped `Port`'s `PortUsage` |
 
-C1–C4 predate Rules E–I and don't yet have dedicated completeness checks of their own (no `PortBlock`-duplicate-`PartUsage` invariant, no `AttributeUsage`/`Parameter` completeness check) — the Existence-rule tests (E15–E21) cover the same ground per-instance, just not as a model-wide invariant the way C1–C4 do.
+C1–C4 predate Rules E–I; C5–C7 close that gap, one completeness check per rule added since. Note that `FlowUsage` is itself an `ActionUsage` subtype in the SysML ecore (§1.9/§1.11) — a raw type-based count of "every `ActionUsage` in the model" also counts any legitimate Rule H `FlowUsage`s present, so C6's own test asserts on the cascade's specific `"process" + name` naming pattern instead of a bare count, to avoid conflating the two.
 
 ---
 

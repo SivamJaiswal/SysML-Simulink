@@ -93,4 +93,23 @@ public class SysMLToSimulinkPropertyTest {
         assertNull(util.getCorrespondingInSimulink(vsum, "oldRating", Parameter.class));
         assertNotNull(util.getCorrespondingInSimulink(vsum, "newRating", Parameter.class));
     }
+
+    @Test
+    @DisplayName("Bidirectional – AttributeUsage/Parameter names stay in sync after alternating renames")
+    void bidirectional_attributeUsageParameter_alternatingRenames(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addPartUsage(vsum, "Turbine");
+        util.addPartAttributeUsage(vsum, "Turbine", "initial");
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "initial", Parameter.class));
+
+        util.renameInSysml(vsum, "initial", AttributeUsage.class, "fromSysml");
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "fromSysml", Parameter.class),
+                "Parameter must follow AttributeUsage rename");
+
+        util.renameParameterInSimulink(vsum, "fromSysml", "fromSimulink");
+        assertNotNull(util.getCorrespondingInSysml(vsum, "fromSimulink", AttributeUsage.class),
+                "AttributeUsage must follow Parameter rename");
+    }
 }
