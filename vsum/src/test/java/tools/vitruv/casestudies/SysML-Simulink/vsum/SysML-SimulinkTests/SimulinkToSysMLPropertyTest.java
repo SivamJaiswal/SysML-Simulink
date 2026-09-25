@@ -21,10 +21,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
 
-/**
- * Tests Property rules P2, P4, P5 where changes originate on the Simulink
- * side, plus bidirectional round-trip renames.
- */
+// Tests Property rules (P2, P4, P5, P6) where changes originate on the Simulink side, plus bidirectional round-trip renames.
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public class SimulinkToSysMLPropertyTest {
 

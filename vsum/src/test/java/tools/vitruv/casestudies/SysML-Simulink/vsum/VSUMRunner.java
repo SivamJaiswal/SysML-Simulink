@@ -63,8 +63,7 @@ import mir.reactions.simulinkToSysml.SimulinkToSysmlChangePropagationSpecificati
 
 public class VSUMRunner {
 
-	// kept alive after createDefaultVirtualModel so tests can script responses (e.g. addNextSingleSelection)
-	// before triggering a change that prompts an interaction — see resolveInoutPortUsage in SysMLToSimulink.reactions.
+	// kept alive after createDefaultVirtualModel so tests can script responses before an interactive change — see resolveInoutPortUsage in SysMLToSimulink.reactions.
 	private TestUserInteraction userInteraction;
 
 	public InternalVirtualModel createDefaultVirtualModel(Path projectPath) throws Exception {
@@ -87,15 +86,8 @@ public class VSUMRunner {
 
 	// root registration
 	//
-	// SimulinkModel <-> Package has no correspondence, deliberately, not by oversight: unlike every other rule,
-	// there's no derivable relationship between the two — a SimulinkModel and this Package are independently
-	// created top-level roots, neither built in response to the other, so there's no source feature a reaction
-	// could navigate from one to reach the other. More importantly, no reaction would ever need to query such a
-	// correspondence, since every actual propagation in this project happens between the CONTAINED elements
-	// (Block<->PartUsage etc.), which already have their own correspondences — a root-to-root link here would be
-	// inert bookkeeping nobody reads. VSUMExample.java shows SimulinkModel's real (non-test-harness) usage,
-	// wrapping Blocks in SimulinkModel.contains; VSUMRunner below skips that wrapper for test convenience and
-	// registers each Block as its own resource root directly, which is why no SimulinkModel object appears here.
+	// SimulinkModel <-> Package has no correspondence, deliberately — they're independent top-level roots, and propagation only ever needs the contained elements' own correspondences.
+	// VSUMExample wraps Blocks in SimulinkModel.contains for real usage; this harness skips that wrapper and registers each Block as its own root directly, for test convenience.
 
 	public void registerRootObjects(VirtualModel vsum, Path projectPath) {
 		CommittableView view = getDefaultView(vsum, List.of(Package.class)).withChangeRecordingTrait();
@@ -616,11 +608,8 @@ public class VSUMRunner {
 		return count;
 	}
 
-	// finds a FlowUsage anywhere in the sysml tree whose source/target PortUsages have the given names — needed for
-	// FlowUsages that don't carry a lookup-by-name of their own (branch connections, bus signal mappings).
-	// Compares by name, not object identity — every getDefaultView/getSysmlView call opens a fresh view with its
-	// own object instances, so a from/to PortUsage resolved via one view is never == the ones a flow references
-	// via another view, even though they represent the same underlying model element.
+	// finds a FlowUsage by its source/target PortUsage names — needed for FlowUsages with no name of their own (branch connections, bus signal mappings).
+	// Compares by name, not identity — every getDefaultView/getSysmlView call opens a fresh view with its own object instances.
 	public FlowUsage getFlowUsageBetween(VirtualModel vsum, String fromPortName, String toPortName) {
 		for (EObject root : getSysmlView(vsum).getRootObjects()) {
 			FlowUsage found = findFlowUsageBetween(root, fromPortName, toPortName);

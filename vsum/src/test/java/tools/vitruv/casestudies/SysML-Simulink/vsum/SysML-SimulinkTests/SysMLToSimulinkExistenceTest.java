@@ -24,10 +24,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
 
-/**
- * Tests Existence rules (E1, E2, E5-E7, E11-E12) and the Rule D one-directional
- * asymmetry where changes originate on the SysML side.
- */
+// Tests Existence rules (E1, E2, E5-E7, E11-E12) and the Rule D one-directional asymmetry where changes originate on the SysML side.
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public class SysMLToSimulinkExistenceTest {
 

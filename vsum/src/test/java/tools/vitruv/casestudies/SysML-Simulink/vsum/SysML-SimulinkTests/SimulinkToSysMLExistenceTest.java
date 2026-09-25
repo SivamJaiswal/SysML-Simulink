@@ -24,12 +24,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
 
-/**
- * Tests Existence rules (E3, E4, E8-E10, E13-E14) and the Rule D
- * requirement/function/architecture cascade where changes originate on the
- * Simulink side. The e3c4_* test directly reproduces the worked example from
- * Grycz et al. §4.2 (the TemperatureMonitor scenario).
- */
+// Tests Existence rules (E3-E4, E8-E21) and the Rule D requirement/function/architecture cascade where changes originate on the Simulink side.
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public class SimulinkToSysMLExistenceTest {
 
@@ -209,7 +204,7 @@ public class SimulinkToSysMLExistenceTest {
 
         util.addGoto(vsum, tempDir, "SendTag");
         util.addInPort(vsum, "SendTag", "gotoIn");
-        // before the From exists, no flow can exist yet — the "no match yet" case.
+        // before the From exists, no flow can exist yet.
         assertNull(util.getFlowUsageBetween(vsum, "gotoIn", "fromOut"));
 
         util.addFromLinkedToGoto(vsum, tempDir, "ReceiveTag", "SendTag");

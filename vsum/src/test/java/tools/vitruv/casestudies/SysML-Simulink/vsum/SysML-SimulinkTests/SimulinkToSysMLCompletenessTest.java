@@ -146,9 +146,7 @@ public class SimulinkToSysMLCompletenessTest {
 
         assertEquals(6, util.countAllInSysml(vsum, PartUsage.class),
                 "6 block-family instances (Selector, Creator, Visibility, ModelRef, Goto, From) — exactly one PartUsage each");
-        // FlowUsage is itself an ActionUsage subtype in the SysML ecore, and the Goto/From pair above legitimately
-        // gets one via Rule H — so the Rule D cascade check looks for its specific "process<name>" naming pattern
-        // instead of a raw ActionUsage count, which would otherwise conflate the two.
+        // FlowUsage is itself an ActionUsage subtype, so a raw count would conflate it with the Rule H flow above — check the process-prefixed naming pattern instead.
         for (String name : List.of("C6Selector", "C6Creator", "C6Visibility", "C6ModelRef", "C6Goto", "C6From")) {
             assertNull(util.getCorrespondingInSysml(vsum, "process" + name, ActionUsage.class),
                     "Rule D's cascade must never fire for " + name + " — it's plumbing, not a real architecture block");

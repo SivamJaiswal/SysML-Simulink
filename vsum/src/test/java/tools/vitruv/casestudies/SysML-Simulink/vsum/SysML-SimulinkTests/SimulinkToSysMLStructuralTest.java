@@ -14,10 +14,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
 
-/**
- * Tests Structural rules (S3 — Block re-parenting) where changes originate on
- * the Simulink side.
- */
+// Tests Structural rules (S3 — Block re-parenting) where changes originate on the Simulink side.
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public class SimulinkToSysMLStructuralTest {
 

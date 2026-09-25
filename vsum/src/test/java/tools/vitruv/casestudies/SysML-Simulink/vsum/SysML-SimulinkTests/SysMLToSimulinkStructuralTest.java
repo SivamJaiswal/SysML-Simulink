@@ -17,10 +17,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
 
-/**
- * Tests Structural rules (S1, S2 — the Block/SubSystem type migration) where
- * changes originate on the SysML side.
- */
+// Tests Structural rules (S1, S2 — the Block/SubSystem type migration) where changes originate on the SysML side.
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public class SysMLToSimulinkStructuralTest {
 

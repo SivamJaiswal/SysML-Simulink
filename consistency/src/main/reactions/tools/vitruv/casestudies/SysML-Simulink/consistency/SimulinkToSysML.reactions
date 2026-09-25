@@ -129,8 +129,7 @@ reaction BlockDeleted {
 	call deletePartUsageForBlock(affectedEObject)
 }
 
-// Split into three independently-gated routines — chaining all three "retrieve"s in one match would gate the
-// whole thing on function/requirement existing too, but Rule G's block family never has those (no Rule D cascade).
+// Split into three independently-gated routines — retrieve gates the whole match, and Rule G blocks never have function/requirement correspondences.
 routine deletePartUsageForBlock(simulink::Block block) {
 	match {
 		val part = retrieve sysml::PartUsage corresponding to block
@@ -556,7 +555,7 @@ routine deleteFlowUsageForGotoFromLink(simulink::From fromBlock) {
 	}
 }
 
-// E19 note — deleting the Goto side severs From.gotoBlock via the eOpposite before a plain "Goto deleted" event could read fromBlocks (it's already empty by then) — react to the severing itself instead, same cleanup as FromDeleted either way.
+// E19 note — deleting the Goto severs From.gotoBlock via the eOpposite, and fromBlocks is already empty by the time a plain Goto-deleted event fires — react to the severing itself instead, same cleanup as FromDeleted either way.
 reaction FromUnlinkedFromGoto {
 	after element simulink::From removed from simulink::Goto[fromBlocks]
 	call deleteFlowUsageForGotoFromLink(oldValue)

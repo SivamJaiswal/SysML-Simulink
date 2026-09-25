@@ -15,9 +15,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
 
-/**
- * Tests Completeness invariants (C2) where changes originate on the SysML side.
- */
+// Tests Completeness invariants (C2) where changes originate on the SysML side.
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public class SysMLToSimulinkCompletenessTest {
 

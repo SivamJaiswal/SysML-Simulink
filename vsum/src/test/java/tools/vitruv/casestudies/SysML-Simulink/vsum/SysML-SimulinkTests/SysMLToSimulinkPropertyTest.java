@@ -20,10 +20,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import tools.vitruv.framework.vsum.internal.InternalVirtualModel;
 
-/**
- * Tests Property rules (P1, P3) where changes originate on the SysML side, plus
- * bidirectional round-trip renames.
- */
+// Tests Property rules (P1, P3, P6) where changes originate on the SysML side, plus bidirectional round-trip renames.
 @TestMethodOrder(MethodOrderer.DisplayName.class)
 public class SysMLToSimulinkPropertyTest {
 
