@@ -550,6 +550,12 @@ If a specific module needs to be built in isolation (e.g. while iterating on the
 
 `./mvnw clean verify` runs the automated test suite — no human is ever prompted. To actually see the V-SUM in action end-to-end, run `VSUMExample`'s `main()` method directly.
 
+`exec:java` invoked as a standalone goal (below) resolves `model`/`consistency` from your **local Maven repository**, not from the reactor's in-memory build — so if you've only ever run `clean verify` (which never runs `install`), it'll silently pick up whatever old jar happens to be sitting in `~/.m2`, if anything, and any recent `.reactions` change (including the interactive `inout` resolution itself) won't be there. Install them first, every time you've touched `model/` or `consistency/`:
+
+```bash
+./mvnw -pl model,consistency -am install -DskipTests
+```
+
 `vsum/sample-data/` holds generated, machine-specific data, so the first time you do this, build it locally:
 
 ```bash
