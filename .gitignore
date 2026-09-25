@@ -17,6 +17,7 @@ plugin.properties
 .DS_Store
 .project
 .settings/
+*.aird
 
 # Personal notes
 CLAUDE.md
