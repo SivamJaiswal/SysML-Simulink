@@ -495,6 +495,28 @@ public class SimulinkToSysMLExistenceTest {
         assertNull(util.getFlowUsageBetween(vsum, "outMulti2", "in2b"), "deleting the MultiConnection must cascade-remove the second branch's FlowUsage too");
     }
 
+    @Test
+    @DisplayName("E17 note – one MultiConnection branch deleted → only that branch's FlowUsage removed, sibling survives")
+    void e17note_oneMultiConnectionBranchDeleted_siblingSurvives(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addBlock(vsum, tempDir, "FanoutSender3", true);
+        util.addOutPort(vsum, "FanoutSender3", "outMulti3");
+        util.addSubBlock(vsum, "FanoutSender3", "Receiver1c", false);
+        util.addInPort(vsum, "Receiver1c", "in1c");
+        util.addSubBlock(vsum, "FanoutSender3", "Receiver2c", false);
+        util.addInPort(vsum, "Receiver2c", "in2c");
+        util.addMultiConnection(vsum, "outMulti3", "in1c", "in2c");
+        assertNotNull(util.getFlowUsageBetween(vsum, "outMulti3", "in1c"));
+        assertNotNull(util.getFlowUsageBetween(vsum, "outMulti3", "in2c"));
+
+        util.deleteMultiConnectionBranch(vsum, "outMulti3", "in1c");
+
+        assertNull(util.getFlowUsageBetween(vsum, "outMulti3", "in1c"), "the deleted branch's FlowUsage must be gone");
+        assertNotNull(util.getFlowUsageBetween(vsum, "outMulti3", "in2c"), "the sibling branch's FlowUsage must survive");
+    }
+
     // Rule F — BusSignalMapping <-> FlowUsage
 
     @Test

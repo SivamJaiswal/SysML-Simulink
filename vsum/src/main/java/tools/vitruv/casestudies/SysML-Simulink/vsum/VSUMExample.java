@@ -7,6 +7,13 @@ import java.util.function.Consumer;
 
 import org.eclipse.emf.common.util.URI;
 
+import org.omg.sysml.lang.sysml.FeatureDirectionKind;
+import org.omg.sysml.lang.sysml.FeatureMembership;
+import org.omg.sysml.lang.sysml.Package;
+import org.omg.sysml.lang.sysml.PartUsage;
+import org.omg.sysml.lang.sysml.PortUsage;
+import org.omg.sysml.lang.sysml.SysMLFactory;
+
 import hu.bme.mit.massif.simulink.Block;
 import hu.bme.mit.massif.simulink.SimulinkFactory;
 import hu.bme.mit.massif.simulink.SimulinkModel;
@@ -41,6 +48,27 @@ public class VSUMExample {
           model.getContains().add(block);
           v.registerRoot(model, URI.createFileURI(storageFolder + "/simulink/temperature_monitor.simulink"));
         });
+
+    // Rule B's one ambiguous case — a PortUsage with no fixed InPort/OutPort target — prompts interactively instead of staying silently unmapped. See README.md §3.2 Rule B note.
+    modifyView(
+        getDefaultView(vsum).withChangeRecordingTrait(),
+        (CommittableView v) -> {
+          Package sysmlRoot = v.getRootObjects(Package.class).iterator().next();
+          PartUsage part = SysMLFactory.eINSTANCE.createPartUsage();
+          part.setDeclaredName("SensorBus");
+          attach(sysmlRoot, part);
+
+          PortUsage port = SysMLFactory.eINSTANCE.createPortUsage();
+          port.setDeclaredName("dataLine");
+          port.setDirection(FeatureDirectionKind.INOUT);
+          attach(part, port);
+        });
+  }
+
+  private static void attach(org.omg.sysml.lang.sysml.Element parent, org.omg.sysml.lang.sysml.Element member) {
+    FeatureMembership membership = SysMLFactory.eINSTANCE.createFeatureMembership();
+    parent.getOwnedRelationship().add(membership);
+    membership.getOwnedRelatedElement().add(member);
   }
 
   private static VirtualModel createDefaultVirtualModel(Path storageFolder) throws IOException {

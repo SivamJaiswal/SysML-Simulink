@@ -21,7 +21,7 @@ import tools.vitruv.framework.views.ViewTypeFactory;
 import tools.vitruv.framework.vsum.VirtualModel;
 import tools.vitruv.framework.vsum.VirtualModelBuilder;
 
-/** Builds the vsum/sample-data baseline used by VSUMExample — run this once before the first interactive run. */
+// Builds the vsum/sample-data baseline used by VSUMExample — run this once before the first interactive run.
 public class VSUMSampleDataGenerator {
   private static final String SYSML_FILE = "/sysml/example.sysml";
 

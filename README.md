@@ -498,6 +498,8 @@ Rules are grouped into four categories: **Existence (E)**, **Property (P)**, **S
 | S2 | `PartUsage` loses its last `nestedPart` | replace corresponding `SubSystem` with a plain `Block`; update correspondence |
 | S3 | Simulink `Block` moved into a `SubSystem.subBlocks` (i.e. gains a `parent`) | add corresponding `PartUsage` as a `nestedPart` of the corresponding parent `PartUsage` |
 
+S3's trigger matches generically on `simulink::Block`, the same supertype `BlockCreated`/E3 matches on — so it applies to Rule G's block family too, not just plain `Block`/`SubSystem`, without any extra guarding needed.
+
 #### Completeness Rules — model-wide invariants
 
 | ID | Invariant |

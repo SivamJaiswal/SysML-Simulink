@@ -372,6 +372,21 @@ public class VSUMRunner {
 		});
 	}
 
+	// deletes just one branch, found by its `to` InPort's name, leaving the MultiConnection and its other branches intact.
+	public void deleteMultiConnectionBranch(VirtualModel vsum, String outPortName, String toInPortName) {
+		CommittableView view = getSimulinkView(vsum).withChangeRecordingTrait();
+		modifyView(view, v -> {
+			OutPort outPort = findByNameAndType(getSimulinkRoot(v), OutPort.class, outPortName);
+			MultiConnection multi = (MultiConnection) outPort.getConnection();
+			for (SingleConnection branch : multi.getConnections()) {
+				if (toInPortName.equals(effectiveName(branch.getTo()))) {
+					EcoreUtil.delete(branch, true);
+					return;
+				}
+			}
+		});
+	}
+
 	// shared by every Block-subtype-as-root helper below — same shape as addBlock, different factory.
 	private String addRootBlockLike(VirtualModel vsum, Path filePath, String name, Supplier<? extends Block> factory) {
 		CommittableView view = getDefaultView(vsum, List.of(Block.class)).withChangeRecordingTrait();
