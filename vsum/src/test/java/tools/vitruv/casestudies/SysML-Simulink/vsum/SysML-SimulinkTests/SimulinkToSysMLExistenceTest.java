@@ -168,6 +168,37 @@ public class SimulinkToSysMLExistenceTest {
         assertEquals(1, util.countMatchingInSysml(vsum, "ExternalBrakeModel", PartUsage.class));
     }
 
+    @Test
+    @DisplayName("Rule G note – BusSelector deleted → its PartUsage removed, same generic mechanism as a plain Block")
+    void ruleGNote_busSelectorDeleted_partUsageRemoved(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addBusSelector(vsum, tempDir, "SignalSplitter3");
+        assertNotNull(util.getCorrespondingInSysml(vsum, "SignalSplitter3", PartUsage.class));
+
+        util.deleteFromSimulink(vsum, "SignalSplitter3", hu.bme.mit.massif.simulink.BusSelector.class);
+
+        assertNull(util.getCorrespondingInSysml(vsum, "SignalSplitter3", PartUsage.class),
+                "E4's generic Block-deleted matching must apply to Rule G's block family too, same as E3 does for creation");
+    }
+
+    @Test
+    @DisplayName("Rule G note – Goto renamed → its PartUsage.declaredName updated, same generic mechanism as a plain Block")
+    void ruleGNote_gotoRenamed_partUsageRenamed(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+
+        util.addGoto(vsum, tempDir, "OldTag");
+        assertNotNull(util.getCorrespondingInSysml(vsum, "OldTag", PartUsage.class));
+
+        util.renameInSimulink(vsum, "OldTag", hu.bme.mit.massif.simulink.Goto.class, "NewTag");
+
+        assertNull(util.getCorrespondingInSysml(vsum, "OldTag", PartUsage.class), "old name must no longer resolve");
+        assertNotNull(util.getCorrespondingInSysml(vsum, "NewTag", PartUsage.class),
+                "P2's generic Block-renamed matching must apply to Rule G's block family too");
+    }
+
     // Rule H — Goto/From tag-based virtual wire <-> FlowUsage
 
     @Test

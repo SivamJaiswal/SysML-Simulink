@@ -129,23 +129,37 @@ reaction BlockDeleted {
 	call deletePartUsageForBlock(affectedEObject)
 }
 
+// Split into three independently-gated routines — chaining all three "retrieve"s in one match would gate the
+// whole thing on function/requirement existing too, but Rule G's block family never has those (no Rule D cascade).
 routine deletePartUsageForBlock(simulink::Block block) {
 	match {
 		val part = retrieve sysml::PartUsage corresponding to block
+	}
+	update {
+		deleteCascadeFunctionForPart(part)
+		deleteCascadeRequirementForPart(part)
+		removeObject(part)
+		removeCorrespondenceBetween(block, part)
+	}
+}
+
+routine deleteCascadeFunctionForPart(sysml::PartUsage part) {
+	match {
 		val function = retrieve sysml::ActionUsage corresponding to part
+	}
+	update {
+		removeObject(function)
+		removeCorrespondenceBetween(part, function)
+	}
+}
+
+routine deleteCascadeRequirementForPart(sysml::PartUsage part) {
+	match {
 		val requirement = retrieve sysml::RequirementUsage corresponding to part
 	}
 	update {
-		if (function !== null) {
-			removeObject(function)
-			removeCorrespondenceBetween(part, function)
-		}
-		if (requirement !== null) {
-			removeObject(requirement)
-			removeCorrespondenceBetween(part, requirement)
-		}
-		removeObject(part)
-		removeCorrespondenceBetween(block, part)
+		removeObject(requirement)
+		removeCorrespondenceBetween(part, requirement)
 	}
 }
 

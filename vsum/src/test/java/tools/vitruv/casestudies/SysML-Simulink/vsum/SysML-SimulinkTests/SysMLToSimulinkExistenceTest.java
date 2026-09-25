@@ -158,6 +158,24 @@ public class SysMLToSimulinkExistenceTest {
     }
 
     @Test
+    @DisplayName("Rule B note – inout PortUsage deleted after \"paired\" choice → both InPort and OutPort removed")
+    void ruleBNote_inoutPortUsagePairedThenDeleted_bothPortsRemoved(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+        util.addPartUsage(vsum, "Transceiver5");
+
+        util.getUserInteraction().addNextSingleSelection(2);
+        util.addPortUsage(vsum, "Transceiver5", "bus5", FeatureDirectionKind.INOUT);
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus5", InPort.class));
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus5", OutPort.class));
+
+        util.deleteFromSysml(vsum, "bus5", PortUsage.class);
+
+        assertNull(util.getCorrespondingInSimulink(vsum, "bus5", InPort.class), "E7 must clean up both ports the paired choice created, not just one");
+        assertNull(util.getCorrespondingInSimulink(vsum, "bus5", OutPort.class), "E7 must clean up both ports the paired choice created, not just one");
+    }
+
+    @Test
     @DisplayName("E7 – PortUsage deleted → corresponding Port removed")
     void e7_portUsageDeleted_portRemoved(@TempDir Path tempDir) throws Exception {
         InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
