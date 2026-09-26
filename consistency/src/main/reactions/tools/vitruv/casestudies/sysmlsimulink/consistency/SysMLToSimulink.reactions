@@ -283,6 +283,7 @@ reaction PortUsageRenamed {
 	call syncPortUsageName(affectedEObject)
 }
 
+// Split by concrete subtype, not merged into one simulink::Port-typed retrieve — the paired inout choice gives a single PortUsage two correspondences (InPort and OutPort), and retrieve requires exactly one match, throwing IllegalStateException otherwise.
 routine syncInPortName(sysml::PortUsage port) {
 	match {
 		val inPort = retrieve simulink::InPort corresponding to port

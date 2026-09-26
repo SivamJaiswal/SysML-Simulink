@@ -141,6 +141,24 @@ public class SysMLToSimulinkExistenceTest {
     }
 
     @Test
+    @DisplayName("Rule B note – inout PortUsage renamed after \"paired\" choice → both InPort and OutPort renamed")
+    void ruleBNote_inoutPortUsagePairedThenRenamed_bothPortsRenamed(@TempDir Path tempDir) throws Exception {
+        InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
+        util.registerRootObjects(vsum, tempDir);
+        util.addPartUsage(vsum, "Transceiver5");
+
+        util.getUserInteraction().addNextSingleSelection(2);
+        util.addPortUsage(vsum, "Transceiver5", "bus5old", FeatureDirectionKind.INOUT);
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus5old", InPort.class));
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus5old", OutPort.class));
+
+        util.renameInSysml(vsum, "bus5old", PortUsage.class, "bus5new");
+
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus5new", InPort.class), "P3 must rename both correspondences the paired choice created, not just one");
+        assertNotNull(util.getCorrespondingInSimulink(vsum, "bus5new", OutPort.class), "P3 must rename both correspondences the paired choice created, not just one");
+    }
+
+    @Test
     @DisplayName("Rule B note – inout PortUsage, user picks \"Skip\" → nothing created")
     void ruleBNote_inoutPortUsage_choiceSkip(@TempDir Path tempDir) throws Exception {
         InternalVirtualModel vsum = util.createDefaultVirtualModel(tempDir);
