@@ -36,6 +36,16 @@ public class VSUMExample {
     Path storageFolder = Path.of("vsum/sample-data").toAbsolutePath();
     VirtualModel vsum = createDefaultVirtualModel(storageFolder);
 
+    // Registers the SysML root the first time this runs against a fresh storage folder — no separate setup step needed.
+    modifyView(
+        getDefaultView(vsum).withChangeRecordingTrait(),
+        (CommittableView v) -> {
+          if (v.getRootObjects(Package.class).isEmpty()) {
+            Package root = SysMLFactory.eINSTANCE.createPackage();
+            v.registerRoot(root, URI.createFileURI(storageFolder + "/sysml/example.sysml"));
+          }
+        });
+
     // E3 + Rule D cascade — see README.md §3.4.
     modifyView(
         getDefaultView(vsum).withChangeRecordingTrait(),

@@ -558,18 +558,12 @@ If a specific module needs to be built in isolation (e.g. while iterating on the
 ./mvnw -pl model,consistency -am install -DskipTests
 ```
 
-`vsum/sample-data/` holds generated, machine-specific data, so the first time you do this, build it locally:
-
-```bash
-./mvnw -pl vsum org.codehaus.mojo:exec-maven-plugin:3.1.0:java -Dexec.mainClass="tools.vitruv.casestudies.sysmlsimulink.vsum.VSUMSampleDataGenerator" -Dexec.classpathScope=compile
-```
-
-Then run the interactive demo itself:
+`vsum/sample-data/` holds generated, machine-specific data. `VSUMExample` builds it itself the first time it runs against an empty folder — no separate setup step needed:
 
 ```bash
 ./mvnw -pl vsum org.codehaus.mojo:exec-maven-plugin:3.1.0:java -Dexec.mainClass="tools.vitruv.casestudies.sysmlsimulink.vsum.VSUMExample" -Dexec.classpathScope=compile
 ```
 
-Run both from the project root. `VSUMExample` loads the baseline model built by the step above, then adds a Simulink `Block` named `TemperatureMonitor` with no corresponding SysML element — reproducing Grycz et al.'s worked example (§4.2) and letting you inspect the resulting `PartUsage`/`ActionUsage`/`RequirementUsage` cascade (Rule D) directly in `vsum/sample-data/`.
+Run from the project root. `VSUMExample` registers the SysML root if none exists yet, then adds a Simulink `Block` named `TemperatureMonitor` with no corresponding SysML element — reproducing Grycz et al.'s worked example (§4.2) and letting you inspect the resulting `PartUsage`/`ActionUsage`/`RequirementUsage` cascade (Rule D) directly in `vsum/sample-data/`.
 
-Re-running `VSUMExample` repeatedly against the same `vsum/sample-data/` folder adds another same-named `Block` each time, since the demo's object name is hardcoded. Re-running `VSUMSampleDataGenerator` against an already-populated folder will similarly conflict — only run it once, right after a fresh copy is needed.
+Re-running it repeatedly against the same `vsum/sample-data/` folder adds another same-named `Block` each time, since the demo's object name is hardcoded — delete `vsum/sample-data/` first for a clean run.
