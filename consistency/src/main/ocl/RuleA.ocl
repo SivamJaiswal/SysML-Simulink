@@ -1,0 +1,13 @@
+-- Rule A: PartUsage <-> Block/SubSystem
+-- "corresponding" is approximated by name matching (declaredName == simulinkRef.name), since
+-- MultiModel-OCL has no native concept of a Vitruv correspondence link between two model instances.
+
+context sysml::PartUsage inv subsystemHasCorrespondingSubSystem:
+  self.nestedPart.notEmpty() implies
+    simulink::SubSystem.allInstances()
+      .exists(b | b.simulinkRef.name == self.declaredName)
+
+context sysml::PartUsage inv leafHasCorrespondingBlock:
+  self.nestedPart.isEmpty() implies
+    simulink::Block.allInstances()
+      .exists(b | b.simulinkRef.name == self.declaredName and not b.oclIsKindOf(simulink::SubSystem))

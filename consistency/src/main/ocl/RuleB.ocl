@@ -1,0 +1,13 @@
+-- Rule B: PortUsage <-> InPort/OutPort
+-- direction=inout is intentionally not covered here - it has no static invariant (resolved
+-- interactively at runtime, see README.md Section 3.2 Rule B note), so this file only covers in/out.
+
+context sysml::PortUsage inv inPortCorrespondence:
+  self.direction = sysml::FeatureDirectionKind::in implies
+    simulink::InPort.allInstances()
+      .exists(p | p.simulinkRef.name == self.declaredName)
+
+context sysml::PortUsage inv outPortCorrespondence:
+  self.direction = sysml::FeatureDirectionKind::out implies
+    simulink::OutPort.allInstances()
+      .exists(p | p.simulinkRef.name == self.declaredName)

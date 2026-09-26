@@ -1,0 +1,9 @@
+-- Rule C: FlowUsage <-> SingleConnection
+
+context sysml::FlowUsage inv twoEnded:
+  self.flowEnd.size() = 2
+
+context sysml::FlowUsage inv hasSingleConnection:
+  simulink::SingleConnection.allInstances()
+    .exists(c | c.from.simulinkRef.name == self.flowEnd.first().declaredName
+      and c.to.simulinkRef.name == self.flowEnd.last().declaredName)

@@ -1,0 +1,9 @@
+-- Rule D: traceability cascade naming consistency (function/requirement siblings)
+
+context sysml::ActionUsage inv cascadeFunctionNaming:
+  sysml::PartUsage.allInstances()
+    .exists(p | self.declaredName == 'process'.concat(p.declaredName))
+
+context sysml::RequirementUsage inv cascadeRequirementNaming:
+  sysml::PartUsage.allInstances()
+    .exists(p | self.declaredName == p.declaredName.concat('Requirement'))

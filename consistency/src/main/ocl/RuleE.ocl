@@ -1,0 +1,5 @@
+-- Rule E: AttributeUsage <-> Parameter name consistency
+
+context sysml::AttributeUsage inv parameterNameSync:
+  simulink::Parameter.allInstances()
+    .exists(p | p.name == self.declaredName)
