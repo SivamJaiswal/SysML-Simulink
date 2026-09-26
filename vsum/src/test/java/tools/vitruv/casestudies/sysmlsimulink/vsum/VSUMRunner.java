@@ -1,4 +1,4 @@
-package tools.vitruv.methodologisttemplate.vsum;
+package tools.vitruv.casestudies.sysmlsimulink.vsum;
 
 // Shared test-side helpers for the SysML <-> Simulink VSUM; every test under SysML-SimulinkTests/ goes through these methods instead of touching the EMF model API directly.
 

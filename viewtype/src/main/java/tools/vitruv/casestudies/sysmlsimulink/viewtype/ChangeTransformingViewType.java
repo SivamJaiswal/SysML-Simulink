@@ -1,6 +1,6 @@
-package tools.vitruv.methodologisttemplate.viewtype;
+package tools.vitruv.casestudies.sysmlsimulink.viewtype;
 
-import tools.vitruv.methodologisttemplate.viewtype.impl.ChangeTransformingViewTypeImpl;
+import tools.vitruv.casestudies.sysmlsimulink.viewtype.impl.ChangeTransformingViewTypeImpl;
 
 import java.util.List;
 import java.util.function.Function;

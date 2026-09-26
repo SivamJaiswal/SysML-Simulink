@@ -1,4 +1,4 @@
-package tools.vitruv.methodologisttemplate.vsum;
+package tools.vitruv.casestudies.sysmlsimulink.vsum;
 
 import static org.junit.jupiter.api.Assertions.*;
 

@@ -1,4 +1,4 @@
-module tools.vitruv.methodologisttemplate.model
+module tools.vitruv.casestudies.sysmlsimulink.model
 
 import org.eclipse.emf.mwe2.ecore.EcoreGenerator
 import org.eclipse.emf.mwe.utils.StandaloneSetup
@@ -21,14 +21,14 @@ Workflow {
     // so the missing delegate runtimes are never actually invoked.
 
     component = EcoreGenerator {
-        genModel = "platform:/resource/tools.vitruv.methodologisttemplate.model/src/main/ecore/SysML.genmodel"
-        srcPath = "platform:/resource/tools.vitruv.methodologisttemplate.model/target/generated-sources/ecore"
+        genModel = "platform:/resource/tools.vitruv.casestudies.sysmlsimulink.model/src/main/ecore/SysML.genmodel"
+        srcPath = "platform:/resource/tools.vitruv.casestudies.sysmlsimulink.model/target/generated-sources/ecore"
         generateCustomClasses = false
     }
 
     component = EcoreGenerator {
-        genModel = "platform:/resource/tools.vitruv.methodologisttemplate.model/src/main/ecore/simulink.genmodel"
-        srcPath = "platform:/resource/tools.vitruv.methodologisttemplate.model/target/generated-sources/ecore"
+        genModel = "platform:/resource/tools.vitruv.casestudies.sysmlsimulink.model/src/main/ecore/simulink.genmodel"
+        srcPath = "platform:/resource/tools.vitruv.casestudies.sysmlsimulink.model/target/generated-sources/ecore"
         generateCustomClasses = false
     }
 }
