@@ -1,6 +1,5 @@
 -- Rule B: PortUsage <-> InPort/OutPort
--- direction=inout is intentionally not covered here - it has no static invariant (resolved
--- interactively at runtime, see README.md Section 3.2 Rule B note), so this file only covers in/out.
+-- direction=inout is intentionally not covered here - it has no static invariant, resolved interactively instead (see README.md Section 3.2 Rule B note).
 
 context sysml::PortUsage inv inPortCorrespondence:
   self.direction = sysml::FeatureDirectionKind::in implies
