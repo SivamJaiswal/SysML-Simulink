@@ -536,9 +536,9 @@ C1–C4 predate Rules E–I; C5–C7 close that gap, one completeness check per 
 
 ### 3.5 Checkable Invariants (MultiModel-OCL)
 
-The OCL blocks in §3.3 are illustrative — they document intent but nothing executes them. `consistency/src/main/ocl/` has real constraint files for Rules A–E, written in [MultiModel-OCL](https://github.com/vitruv-tools/MultiModel-OCL)'s actual syntax (unified dot notation, no `->`, fully-qualified metamodel names) against this project's own `SysML.ecore`/`simulink.ecore`. Rules F–I stay out of scope here too, same reasoning as §3.3.
+`consistency/src/main/ocl/` holds constraint files for Rules A–E in [MultiModel-OCL](https://github.com/vitruv-tools/MultiModel-OCL) syntax, written against `SysML.ecore`/`simulink.ecore` directly — unlike §3.3's pseudo-OCL, these parse and can actually be checked. Rules F–I are out of scope, same as §3.3.
 
-**Honestly flagged limitation:** MultiModel-OCL is an experimental vitruv-tools project (no Maven Central artifact, distributed as a standalone CLI jar / VSCode extension, no documented direct VSUM hook) — these constraints are checked by running the external tool against this project's ecores and a model instance, not by `mvn verify`. See the tool's own README for the `multimodelocl.jar` CLI usage; point it at `model/src/main/ecore/SysML.ecore` / `simulink.ecore` and the `.ocl` files in this repo.
+MultiModel-OCL is a young vitruv-tools project, distributed as a standalone CLI jar rather than a Maven artifact, so it isn't part of `mvn verify` — run `multimodelocl.jar` against `model/src/main/ecore/SysML.ecore`/`simulink.ecore` and the `.ocl` files here to check them.
 
 ---
 
